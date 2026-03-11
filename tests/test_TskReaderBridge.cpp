@@ -117,7 +117,7 @@ int runTskReaderBridgeTests() {
 
   auto fallbackReader = std::make_shared<BridgeFakeReader>();
   fallbackReader->m_path = fallbackPath;
-  fie::core::TskImageHandleAdapter fallbackAdapter(fallbackReader, std::make_unique<AlwaysFailBridge>());
+  fie::core::TskImageHandleAdapter fallbackAdapter(fallbackReader, std::make_unique<AlwaysFailBridge>(), true);
   error.clear();
   const bool fallbackOpened = fallbackAdapter.open(error);
   QFile::remove(fallbackPath);
@@ -128,7 +128,7 @@ int runTskReaderBridgeTests() {
 
   auto failReader = std::make_shared<BridgeFakeReader>();
   failReader->m_path = QDir::currentPath() + "/definitely_missing_bridge_fallback.img";
-  fie::core::TskImageHandleAdapter failAdapter(failReader, std::make_unique<AlwaysFailBridge>());
+  fie::core::TskImageHandleAdapter failAdapter(failReader, std::make_unique<AlwaysFailBridge>(), true);
   error.clear();
   if (failAdapter.open(error) || error.isEmpty()) {
     return 1;

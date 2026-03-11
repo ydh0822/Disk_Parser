@@ -25,6 +25,11 @@ bool MetadataSerializerJson::write(const QString &path,
     obj["allocated"] = r.allocated;
     obj["si_timestamps"] = serializeTimestampSet(r.siTimestamps);
     obj["fn_timestamps"] = serializeTimestampSet(r.fnTimestamps);
+    QJsonArray adsNames;
+    for (const auto &name : r.adsNames) {
+      adsNames.append(name);
+    }
+    obj["ads_names"] = adsNames;
     obj["destination_path"] = r.destinationPath;
     obj["sha256"] = r.sha256;
     obj["md5"] = r.md5;

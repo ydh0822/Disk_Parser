@@ -1,5 +1,7 @@
 #include "ForensicImageExtractor/utils/MetadataFactory.h"
 
+#include <algorithm>
+
 namespace fie::utils {
 
 domain::CatalogRecord createCatalogRecord(const domain::ImageInfo &image,
@@ -17,6 +19,9 @@ domain::CatalogRecord createCatalogRecord(const domain::ImageInfo &image,
   if (result.source.metadata.ntfs) {
     r.siTimestamps = result.source.metadata.ntfs->standardInfo;
     r.fnTimestamps = result.source.metadata.ntfs->fileNameInfo;
+    r.adsNames = result.source.metadata.ntfs->adsNames;
+    std::sort(r.adsNames.begin(), r.adsNames.end());
+    r.adsNames.erase(std::unique(r.adsNames.begin(), r.adsNames.end()), r.adsNames.end());
   }
   r.primaryOutcome = result.primaryOutcome;
   r.extractionStatus = result.status;

@@ -8,6 +8,7 @@ int runMetadataExportFieldTests() {
   r.sourceImagePath = "img.dd";
   r.partitionIdentifier = "p1";
   r.warning = "non-fatal";
+  r.adsNames = {"Zone.Identifier"};
   r.hostTimestampsApplied = false;
   r.hostTimestampError = "failed";
   r.bytesWritten = 123;
@@ -23,14 +24,14 @@ int runMetadataExportFieldTests() {
   if (!json.open(QIODevice::ReadOnly)) return 1;
   const auto jsonText = json.readAll();
   if (!jsonText.contains("host_timestamps_applied") || !jsonText.contains("bytes_written") ||
-      !jsonText.contains("warning"))
+      !jsonText.contains("warning") || !jsonText.contains("ads_names"))
     return 1;
 
   QFile csv(csvPath);
   if (!csv.open(QIODevice::ReadOnly)) return 1;
   const auto csvText = csv.readAll();
   if (!csvText.contains("host_timestamps_applied") || !csvText.contains("bytes_written") ||
-      !csvText.contains("warning") || !csvText.contains("non-fatal"))
+      !csvText.contains("warning") || !csvText.contains("non-fatal") || !csvText.contains("ads_names"))
     return 1;
 
   return 0;

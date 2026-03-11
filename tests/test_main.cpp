@@ -17,6 +17,9 @@ int runFileSystemMetadataModelTests();
 int runReadCacheTests();
 int runExtractionCancellationAndProgressTests();
 int runTskReaderBridgeTests();
+int runEndToEndSemanticsTests();
+int runCliOptionsTests();
+int runForensicEdgeCaseTests();
 
 int main() {
   const int rc = runPathUtilsTests() + runTimestampSerializationTests() + runMetadataRecordTests() +
@@ -25,7 +28,8 @@ int main() {
                  runImageReaderFactoryRoutingTests() + runBackendWarningSemanticsTests() +
                  runRecursiveVisitedHandlingTests() + runExtractionStatusSemanticsTests() +
                  runFileSystemMetadataModelTests() + runReadCacheTests() +
-                 runExtractionCancellationAndProgressTests() + runTskReaderBridgeTests();
+                 runExtractionCancellationAndProgressTests() + runTskReaderBridgeTests() +
+                 runEndToEndSemanticsTests() + runCliOptionsTests() + runForensicEdgeCaseTests();
   if (rc == 0) {
     std::cout << "All tests passed\n";
   }

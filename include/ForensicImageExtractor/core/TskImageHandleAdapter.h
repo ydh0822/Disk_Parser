@@ -24,8 +24,9 @@ struct TskOpenResolution {
 
 class TskImageHandleAdapter {
 public:
-  explicit TskImageHandleAdapter(std::shared_ptr<IImageReader> reader);
-  TskImageHandleAdapter(std::shared_ptr<IImageReader> reader, std::unique_ptr<ITskReaderBridge> readerBridge);
+  explicit TskImageHandleAdapter(std::shared_ptr<IImageReader> reader, bool allowPathFallback = false);
+  TskImageHandleAdapter(std::shared_ptr<IImageReader> reader, std::unique_ptr<ITskReaderBridge> readerBridge,
+                        bool allowPathFallback);
   ~TskImageHandleAdapter();
 
   bool open(QString &error);
@@ -35,6 +36,7 @@ public:
   TskOpenBackend backend() const;
   bool isReaderBridgeReady() const;
   QString lastWarning() const;
+  bool isPathFallbackEnabled() const;
 
   static TskOpenResolution resolveOpenOutcomeForTesting(const QString &readerBridgeMessage,
                                                         bool pathOpenSucceeded,
@@ -46,6 +48,7 @@ private:
 
   std::shared_ptr<IImageReader> m_reader;
   std::unique_ptr<ITskReaderBridge> m_readerBridge;
+  bool m_allowPathFallback{false};
   TSK_IMG_INFO *m_img{nullptr};
   TskOpenBackend m_backend{TskOpenBackend::PathBased};
   QString m_lastWarning;

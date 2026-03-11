@@ -1,6 +1,6 @@
 # Forensic Image Extractor
 
-Forensic Image Extractor is a Qt 6 Widgets desktop application for read-only forensic image analysis and extraction.
+Forensic Image Extractor provides both a Qt 6 Widgets desktop application and a headless CLI for read-only forensic image analysis and extraction.
 
 ## Current implementation focus
 - RAW/DD image open via `RawImageReader`.
@@ -17,8 +17,9 @@ Forensic Image Extractor is a Qt 6 Widgets desktop application for read-only for
 
 ## E01 + TSK interoperability note
 - `TskImageHandleAdapter` now attempts a reader-backed TSK image open first through `TskReaderBridge`.
-- For libewf-backed E01/EWF images, TSK is now fed through the `IImageReader` callback bridge as the primary operational path.
-- Path-based TSK open remains available only as a fallback path and is surfaced as a warning (not a hard error) when used.
+- Reader-backed operation is the default production path for both RAW/DD and E01/EWF readers.
+- Path-based TSK open is an explicit compatibility mode (`allowPathFallback=true`) and is not enabled by default.
+- When compatibility mode is enabled and path fallback is used, the bridge failure is preserved as a warning (not a hard error).
 - If both reader-backed and path-based open fail, the user receives a combined hard error message with both failure reasons.
 
 ## Metadata fidelity
@@ -40,19 +41,65 @@ Catalog records include:
 - bytes written
 - host timestamp apply status and error details
 
+## Extraction edge-case handling
+- ADS names are normalized (sorted + deduplicated) before catalog serialization for deterministic reporting.
+- Deleted-entry extraction is explicitly marked with `source_entry_deleted` warning context.
+- Short reads retain deterministic `short_read` outcome and include `bytes_written`, `expected`, and `possible_sparse_or_unreadable` context.
+- Timestamp application failures are preserved as warnings and emitted into `host_timestamp_error` fields in JSON/CSV.
+- Zero-byte files preserve size/hash/status fields without special-case omission.
+
+
+## CLI mode (`fie_cli`)
+The repository now includes a minimal production-usable headless executable that reuses the same engine (`fie_core`) used by the GUI.
+
+### Commands
+- `inspect`: open image + enumerate partitions
+- `list`: open image + filesystem + list directory entries
+- `extract`: extract a file/directory to destination root
+- `catalog`: run extraction and emit metadata catalog (JSON/CSV)
+
+### Exit codes
+- `0`: success, no warnings
+- `2`: success with warnings
+- `1`: hard failure
+- `64`: argument/usage error
+
+### Examples
+```bash
+# Inspect partitions
+./build/fie_cli inspect --image /evidence/case001.E01
+
+# List root directory in partition p1
+./build/fie_cli list --image /evidence/case001.E01 --partition p1 --path /
+
+# Extract a directory recursively (reader-backed path is default)
+./build/fie_cli extract --image /evidence/case001.E01 --partition p1 --source /Users --dest /exports/case001 --overwrite versioned
+
+# Extract and emit JSON catalog
+./build/fie_cli catalog --image /evidence/case001.E01 --partition p1 --source /Users --dest /exports/case001 --catalog-out /exports/case001/catalog.json --catalog-format json
+```
+
+`stderr` is reserved for deterministic `warning=` and `error=` lines; `stdout` emits machine-readable JSON payloads for successful command results.
+
 ## Build requirements
 - C++17
 - CMake 3.21+
-- Qt6 Widgets
+- Qt6 Core (required)
+- Qt6 Widgets (required only when `FIE_ENABLE_GUI=ON`)
 - The Sleuth Kit (TSK)
 - libewf (optional but required for E01 read support)
 
 ## Build
 ```powershell
-cmake -S . -B build -DFIE_ENABLE_TESTS=ON
+cmake -S . -B build -DFIE_ENABLE_TESTS=ON -DFIE_ENABLE_GUI=ON -DFIE_ENABLE_CLI=ON
 cmake --build build --config Release
 ctest --test-dir build --output-on-failure -C Release
 ```
+
+
+## Developer notes
+- See `ARCHITECTURE.md` for layer boundaries, runtime forensic flow, and warning/error semantics.
+- See `DEVELOPER_NOTES.md` for stabilization decisions and rationale used in recent hardening passes.
 
 ## TSK/libewf discovery
 CMake supports either system packages or direct cache variables:
@@ -61,4 +108,4 @@ CMake supports either system packages or direct cache variables:
 
 - TSK open warnings are emitted separately from hard errors in worker/UI flow.
 - Reader-backed bridge operation requires a build with TSK external-image callback support enabled (`FIE_HAS_TSK`).
-- If TSK support is unavailable at build time, reader-backed open is skipped and path-based open remains the only available mode.
+- If TSK support is unavailable at build time, image open through TSK fails (reader-backed and path-based modes are both unavailable).
