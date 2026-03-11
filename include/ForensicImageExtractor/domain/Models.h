@@ -105,6 +105,7 @@ struct CatalogRecord {
   bool allocated{true};
   TimestampSet siTimestamps;
   TimestampSet fnTimestamps;
+  QStringList adsNames;
   QString primaryOutcome;
   QString extractionStatus;
   QString destinationPath;

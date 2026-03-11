@@ -4,6 +4,8 @@
 #include <tsk/libtsk.h>
 #endif
 
+#include <algorithm>
+
 namespace fie::forensics {
 namespace {
 std::optional<QDateTime> toDateTime(time_t t) {
@@ -49,7 +51,10 @@ std::vector<domain::FileEntry> FileSystemBrowser::listDirectory(const FileSystem
     entry.fullPath = (path.endsWith('/') ? path : path + "/") + name;
     entry.isDirectory = (file->name->type == TSK_FS_NAME_TYPE_DIR);
     entry.inode = file->name->meta_addr;
-    entry.isAllocated = !(file->name->flags & TSK_FS_NAME_FLAG_UNALLOC);
+    const bool nameUnallocated = (file->name->flags & TSK_FS_NAME_FLAG_UNALLOC) != 0;
+    const bool metaUnallocated =
+        file->meta ? ((file->meta->flags & TSK_FS_META_FLAG_UNALLOC) != 0) : false;
+    entry.isAllocated = !(nameUnallocated || metaUnallocated);
     entry.isDeleted = !entry.isAllocated;
     entry.capabilities = capabilities;
 
@@ -81,6 +86,8 @@ std::vector<domain::FileEntry> FileSystemBrowser::listDirectory(const FileSystem
         ntfs.fileNameInfo.modified = toDateTime(file->name->mtime);
         ntfs.fileNameInfo.entryModified = toDateTime(file->name->ctime);
         ntfs.fileNameInfo.accessed = toDateTime(file->name->atime);
+        std::sort(ntfs.adsNames.begin(), ntfs.adsNames.end());
+        ntfs.adsNames.erase(std::unique(ntfs.adsNames.begin(), ntfs.adsNames.end()), ntfs.adsNames.end());
         entry.metadata.ntfs = std::move(ntfs);
       }
     }

@@ -7,6 +7,7 @@
 - `workers`: threaded workers for open/scan/list/extract.
 - `utils`: logging, hashing, serialization, path handling, timestamp policy.
 - `gui`: Qt Widgets presentation and orchestration.
+- `cli`: headless command surface for inspect/list/extract/catalog using `fie_core` only (no Widgets dependency).
 
 ## Real forensic path (RAW/DD)
 1. `RawImageReader` opens image read-only.
@@ -18,9 +19,9 @@
 
 ## E01 interoperability status
 - `EwfImageReader` is real libewf-backed (`open/size/read`) including segmented-set discovery.
-- `TskImageHandleAdapter` now explicitly separates two backends:
+- `TskImageHandleAdapter` explicitly separates two backends:
   - reader-bridge backend (default operational path via TSK external-image callbacks)
-  - path-based backend (fallback only when reader-backed open fails)
+  - path-based backend (compatibility mode only; attempted only when `allowPathFallback=true` and bridge open fails)
 - `TskReaderBridge` now owns a production callback bridge state (`shared_ptr<IImageReader>` + `ReadCache`) and handles random reads, bounds-safe short reads, and cleanup through TSK close callbacks.
 - Result semantics are explicit: reader-backed success => `ReaderBridge` backend with no warning; reader-backed failure + path success => warning + `PathBased`; both fail => hard error with combined diagnostics.
 - A narrow `TskExternalImageApi` wrapper isolates version-sensitive TSK external-image open/error calls from the bridge logic.
@@ -48,3 +49,12 @@
 - Analyst-facing filters support name contains, deleted-only, files/directories type selection, and ADS-only scope.
 - Selection details include metadata summary plus safe bounded preview (hex + sanitized text) of first bytes via read-only TSK file reads.
 - Extraction UX uses a dock with live progress, per-file status table updates, and final summary counts (success/warning/error/skipped).
+
+
+## Extraction outcome taxonomy
+- `primaryOutcome` captures the deterministic extraction outcome (`success*`, `short_read`, `read_failed`, `write_failed`, etc.).
+- `status` is derived from `primaryOutcome` + warning/error presence and remains stable for reporting (`success_with_warning` for successful outcomes with warnings; non-success outcomes remain unchanged).
+- Warnings and errors are separated:
+  - warnings: non-fatal forensic context (`source_entry_deleted`, timestamp-apply failures, compatibility fallback warnings)
+  - errors: hard-fail conditions (open/read/write failures).
+- Metadata serializers persist `primary_outcome`, `status`, `warning`, `error`, `bytes_written`, and host timestamp fields without lossy transformation.

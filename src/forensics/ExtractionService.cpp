@@ -49,7 +49,9 @@ fie::domain::FileEntry toChildEntry(const TSK_FS_FILE *file, const QString &pare
   e.fullPath = parentPath.endsWith('/') ? parentPath + name : parentPath + '/' + name;
   e.isDirectory = (file->name->type == TSK_FS_NAME_TYPE_DIR);
   e.inode = file->name->meta_addr;
-  e.isAllocated = !(file->name->flags & TSK_FS_NAME_FLAG_UNALLOC);
+  const bool nameUnallocated = (file->name->flags & TSK_FS_NAME_FLAG_UNALLOC) != 0;
+  const bool metaUnallocated = file->meta ? ((file->meta->flags & TSK_FS_META_FLAG_UNALLOC) != 0) : false;
+  e.isAllocated = !(nameUnallocated || metaUnallocated);
   e.isDeleted = !e.isAllocated;
   e.capabilities = capabilities;
   if (file->meta) {
@@ -77,6 +79,8 @@ fie::domain::FileEntry toChildEntry(const TSK_FS_FILE *file, const QString &pare
       ntfs.fileNameInfo.modified = toDateTime(file->name->mtime);
       ntfs.fileNameInfo.entryModified = toDateTime(file->name->ctime);
       ntfs.fileNameInfo.accessed = toDateTime(file->name->atime);
+      std::sort(ntfs.adsNames.begin(), ntfs.adsNames.end());
+      ntfs.adsNames.erase(std::unique(ntfs.adsNames.begin(), ntfs.adsNames.end()), ntfs.adsNames.end());
       e.metadata.ntfs = std::move(ntfs);
     }
   }
@@ -381,7 +385,14 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
 
     if (totalWritten != expectedSize) {
       res.primaryOutcome = "short_read";
-      res.warning = QString("bytes_written=%1 expected=%2").arg(totalWritten).arg(expectedSize);
+      res.warning = QString("short_read bytes_written=%1 expected=%2 possible_sparse_or_unreadable").arg(totalWritten).arg(expectedSize);
+    }
+
+    if (entry.isDeleted) {
+      if (!res.warning.isEmpty()) {
+        res.warning += " | ";
+      }
+      res.warning += "source_entry_deleted";
     }
 
     if (task.settings.applyHostTimestamps) {

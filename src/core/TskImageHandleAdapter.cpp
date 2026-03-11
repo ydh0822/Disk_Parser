@@ -8,12 +8,14 @@
 
 namespace fie::core {
 
-TskImageHandleAdapter::TskImageHandleAdapter(std::shared_ptr<IImageReader> reader)
-    : m_reader(std::move(reader)), m_readerBridge(std::make_unique<TskReaderBridge>()) {}
+TskImageHandleAdapter::TskImageHandleAdapter(std::shared_ptr<IImageReader> reader, bool allowPathFallback)
+    : m_reader(std::move(reader)), m_readerBridge(std::make_unique<TskReaderBridge>()),
+      m_allowPathFallback(allowPathFallback) {}
 
 TskImageHandleAdapter::TskImageHandleAdapter(std::shared_ptr<IImageReader> reader,
-                                             std::unique_ptr<ITskReaderBridge> readerBridge)
-    : m_reader(std::move(reader)), m_readerBridge(std::move(readerBridge)) {}
+                                             std::unique_ptr<ITskReaderBridge> readerBridge,
+                                             bool allowPathFallback)
+    : m_reader(std::move(reader)), m_readerBridge(std::move(readerBridge)), m_allowPathFallback(allowPathFallback) {}
 
 TskImageHandleAdapter::~TskImageHandleAdapter() { close(); }
 
@@ -48,6 +50,10 @@ bool TskImageHandleAdapter::open(QString &error) {
   if (openReaderBridge(error)) {
     m_backend = TskOpenBackend::ReaderBridge;
     return true;
+  }
+
+  if (!m_allowPathFallback) {
+    return false;
   }
 
   QString pathError;
@@ -112,5 +118,6 @@ bool TskImageHandleAdapter::isReaderBridgeReady() const {
   return m_readerBridge ? m_readerBridge->isImplemented() : false;
 }
 QString TskImageHandleAdapter::lastWarning() const { return m_lastWarning; }
+bool TskImageHandleAdapter::isPathFallbackEnabled() const { return m_allowPathFallback; }
 
 } // namespace fie::core

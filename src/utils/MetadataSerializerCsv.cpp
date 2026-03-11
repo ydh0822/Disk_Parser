@@ -10,6 +10,7 @@ QString q(const QString &in) {
   out.replace('"', "\"\"");
   return '"' + out + '"';
 }
+QString joinAds(const QStringList &adsNames) { return adsNames.join(';'); }
 QString fmt(const std::optional<QDateTime> &dt) { return dt ? dt->toString(Qt::ISODate) : ""; }
 } // namespace
 
@@ -25,7 +26,7 @@ bool MetadataSerializerCsv::write(const QString &path,
   QTextStream out(&file);
   out << "source_image_path,partition_identifier,logical_path,file_name,size,inode_mft,deleted,allocated,"
          "si_created,si_modified,si_entry_modified,si_accessed,fn_created,fn_modified,fn_entry_modified,fn_accessed,"
-         "destination_path,sha256,primary_outcome,status,error,warning,bytes_written,host_timestamps_applied,host_timestamp_error\n";
+         "ads_names,destination_path,sha256,primary_outcome,status,error,warning,bytes_written,host_timestamps_applied,host_timestamp_error\n";
 
   for (const auto &r : records) {
     out << q(r.sourceImagePath) << ',' << q(r.partitionIdentifier) << ',' << q(r.logicalPath) << ','
@@ -34,7 +35,7 @@ bool MetadataSerializerCsv::write(const QString &path,
         << q(fmt(r.siTimestamps.modified)) << ',' << q(fmt(r.siTimestamps.entryModified)) << ','
         << q(fmt(r.siTimestamps.accessed)) << ',' << q(fmt(r.fnTimestamps.created)) << ','
         << q(fmt(r.fnTimestamps.modified)) << ',' << q(fmt(r.fnTimestamps.entryModified)) << ','
-        << q(fmt(r.fnTimestamps.accessed)) << ',' << q(r.destinationPath) << ',' << q(r.sha256) << ','
+        << q(fmt(r.fnTimestamps.accessed)) << ',' << q(joinAds(r.adsNames)) << ',' << q(r.destinationPath) << ',' << q(r.sha256) << ','
         << q(r.primaryOutcome) << ',' << q(r.extractionStatus) << ',' << q(r.error) << ',' << q(r.warning) << ',' << r.bytesWritten << ','
         << (r.hostTimestampsApplied ? "true" : "false") << ',' << q(r.hostTimestampError) << '\n';
   }

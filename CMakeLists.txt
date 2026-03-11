@@ -7,11 +7,15 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+option(FIE_ENABLE_GUI "Build Qt Widgets GUI" ON)
+option(FIE_ENABLE_CLI "Build headless CLI" ON)
+
 option(FIE_ENABLE_TESTS "Build tests" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core)
+find_package(Qt6 COMPONENTS Widgets)
 find_package(TSK)
 find_package(LIBEWF)
 
@@ -40,11 +44,12 @@ add_library(fie_core
   src/utils/MetadataSerializerJson.cpp
   src/utils/TimestampPolicy.cpp
   src/utils/ExtractionPlanner.cpp
+  src/cli/CliOptions.cpp
 )
 
 target_include_directories(fie_core PUBLIC include)
 
-target_link_libraries(fie_core PUBLIC Qt6::Widgets)
+target_link_libraries(fie_core PUBLIC Qt6::Core)
 
 if(TSK_FOUND)
   target_compile_definitions(fie_core PUBLIC FIE_HAS_TSK=1)
@@ -62,16 +67,29 @@ else()
   target_compile_options(fie_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-add_executable(ForensicImageExtractor
-  src/app/main.cpp
-  src/gui/MainWindow.cpp
-  src/gui/FileEntryTableModel.cpp
-  src/workers/TaskRunner.cpp
-  src/workers/ExtractionWorker.cpp
-  src/workers/ForensicsWorkers.cpp
-)
+if(FIE_ENABLE_GUI)
+  if(NOT TARGET Qt6::Widgets)
+    message(FATAL_ERROR "FIE_ENABLE_GUI=ON but Qt6::Widgets was not found")
+  endif()
 
-target_link_libraries(ForensicImageExtractor PRIVATE fie_core Qt6::Widgets)
+  add_executable(ForensicImageExtractor
+    src/app/main.cpp
+    src/gui/MainWindow.cpp
+    src/gui/FileEntryTableModel.cpp
+    src/workers/TaskRunner.cpp
+    src/workers/ExtractionWorker.cpp
+    src/workers/ForensicsWorkers.cpp
+  )
+
+  target_link_libraries(ForensicImageExtractor PRIVATE fie_core Qt6::Widgets)
+endif()
+
+if(FIE_ENABLE_CLI)
+  add_executable(fie_cli
+    src/cli/main.cpp
+  )
+  target_link_libraries(fie_cli PRIVATE fie_core Qt6::Core)
+endif()
 
 if(FIE_ENABLE_TESTS)
   enable_testing()
@@ -94,7 +112,10 @@ if(FIE_ENABLE_TESTS)
     tests/test_ReadCache.cpp
     tests/test_ExtractionCancellationAndProgress.cpp
     tests/test_TskReaderBridge.cpp
+    tests/test_EndToEndSemantics.cpp
+    tests/test_CliOptions.cpp
+    tests/test_ForensicEdgeCases.cpp
   )
-  target_link_libraries(fie_tests PRIVATE fie_core Qt6::Widgets)
+  target_link_libraries(fie_tests PRIVATE fie_core Qt6::Core)
   add_test(NAME fie_tests COMMAND fie_tests)
 endif()

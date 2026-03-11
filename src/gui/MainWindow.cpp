@@ -271,7 +271,7 @@ void MainWindow::onOpenImage() {
 
   auto createdReader = core::ImageReaderFactory::create(path);
   m_reader = std::shared_ptr<core::IImageReader>(std::move(createdReader));
-  m_tskImage = std::make_shared<core::TskImageHandleAdapter>(m_reader);
+  m_tskImage = std::make_shared<core::TskImageHandleAdapter>(m_reader, false);
 
   auto *thread = new QThread(this);
   auto *worker = new workers::ImageOpenWorker(m_reader, path);
