@@ -22,6 +22,7 @@ add_library(fie_core
   src/core/RawImageReader.cpp
   src/core/ReadCache.cpp
   src/core/TskImageHandleAdapter.cpp
+  src/core/TskExternalImageApi.cpp
   src/core/TskReaderBridge.cpp
   src/domain/Models.cpp
   src/forensics/VolumeEnumerator.cpp
@@ -92,6 +93,7 @@ if(FIE_ENABLE_TESTS)
     tests/test_FileSystemMetadataModel.cpp
     tests/test_ReadCache.cpp
     tests/test_ExtractionCancellationAndProgress.cpp
+    tests/test_TskReaderBridge.cpp
   )
   target_link_libraries(fie_tests PRIVATE fie_core Qt6::Widgets)
   add_test(NAME fie_tests COMMAND fie_tests)

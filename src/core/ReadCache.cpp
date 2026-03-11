@@ -1,6 +1,7 @@
 #include "ForensicImageExtractor/core/ReadCache.h"
 
 #include <algorithm>
+#include <limits>
 
 namespace fie::core {
 
@@ -18,7 +19,8 @@ QByteArray ReadCache::read(quint64 offset, quint64 size, QString &error) {
     return out;
   }
 
-  out.reserve(static_cast<qsizetype>(size));
+  const quint64 reserveTarget = std::min<quint64>(size, static_cast<quint64>(std::numeric_limits<qsizetype>::max()));
+  out.reserve(static_cast<qsizetype>(reserveTarget));
   quint64 remaining = size;
   quint64 cursor = offset;
   while (remaining > 0) {
@@ -34,6 +36,11 @@ QByteArray ReadCache::read(quint64 offset, quint64 size, QString &error) {
 
     const quint64 available = static_cast<quint64>(block.size()) - inBlockOffset;
     const quint64 take = std::min(remaining, available);
+    if (inBlockOffset > static_cast<quint64>(std::numeric_limits<qsizetype>::max()) ||
+        take > static_cast<quint64>(std::numeric_limits<qsizetype>::max())) {
+      error = "ReadCache read exceeds QByteArray index limits";
+      return {};
+    }
     out.append(block.constData() + static_cast<qsizetype>(inBlockOffset), static_cast<qsizetype>(take));
 
     cursor += take;

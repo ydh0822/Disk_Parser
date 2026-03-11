@@ -7,6 +7,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <limits>
 #include <vector>
 
 namespace fie::core {
@@ -85,6 +86,18 @@ QByteArray EwfImageReader::read(quint64 offset, quint64 size, QString &error) {
     return {};
   }
   if (size == 0) {
+    return {};
+  }
+  if (size > static_cast<quint64>(std::numeric_limits<int>::max())) {
+    error = "Requested EWF read exceeds QByteArray size limits";
+    return {};
+  }
+  if (size > static_cast<quint64>(std::numeric_limits<size_t>::max())) {
+    error = "Requested EWF read exceeds libewf buffer size limits";
+    return {};
+  }
+  if (offset > static_cast<quint64>(std::numeric_limits<off64_t>::max())) {
+    error = "Requested EWF read offset exceeds libewf off64 range";
     return {};
   }
   QByteArray out;

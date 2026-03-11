@@ -19,9 +19,11 @@
 ## E01 interoperability status
 - `EwfImageReader` is real libewf-backed (`open/size/read`) including segmented-set discovery.
 - `TskImageHandleAdapter` now explicitly separates two backends:
-  - reader-bridge backend (planned callback-backed `IImageReader` integration)
-  - path-based backend (current operational fallback)
-- This makes the E01+TSK gap explicit without pretending full callback bridge completion yet.
+  - reader-bridge backend (default operational path via TSK external-image callbacks)
+  - path-based backend (fallback only when reader-backed open fails)
+- `TskReaderBridge` now owns a production callback bridge state (`shared_ptr<IImageReader>` + `ReadCache`) and handles random reads, bounds-safe short reads, and cleanup through TSK close callbacks.
+- Result semantics are explicit: reader-backed success => `ReaderBridge` backend with no warning; reader-backed failure + path success => warning + `PathBased`; both fail => hard error with combined diagnostics.
+- A narrow `TskExternalImageApi` wrapper isolates version-sensitive TSK external-image open/error calls from the bridge logic.
 
 ## Timestamp handling
 - Generic filesystem timestamps come from `TSK_FS_META`.
@@ -34,6 +36,7 @@
 
 ## Performance and responsiveness model
 - `core::ReadCache` provides fixed-size block caching for `IImageReader`-backed random reads and is reusable by bridge/callback-style readers to avoid redundant backend reads.
+- The TSK reader bridge uses `ReadCache` to reduce repeated backend reads during filesystem/metadata traversal, keeping the callback path responsive for EWF-backed random access.
 - Long-running worker flows are cooperative and cancellable via `forensics::CancellationToken` (`requestCancel` slot on open/scan/list/extract workers).
 - Extraction progress is reported as structured `ProgressInfo` with per-file and aggregate byte counters; UI status text is updated from worker progress signals.
 - Extraction remains read-only; short reads, warnings, and error statuses are preserved and surfaced exactly as before.
