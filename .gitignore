@@ -1,0 +1,8 @@
+build/
+.vscode/
+.idea/
+*.user
+*.obj
+*.pdb
+*.ilk
+*.log
