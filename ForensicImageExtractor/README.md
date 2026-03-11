@@ -58,5 +58,4 @@ CMake supports either system packages or direct cache variables:
 - `TSK_INCLUDE_DIR`, `TSK_LIBRARY`
 - `LIBEWF_INCLUDE_DIR`, `LIBEWF_LIBRARY`
 
-
 - TSK open warnings are emitted separately from hard errors in worker/UI flow.

@@ -8,8 +8,6 @@ namespace fie::core {
 class ReadCache;
 }
 
-
-
 struct TSK_IMG_INFO;
 
 namespace fie::core {

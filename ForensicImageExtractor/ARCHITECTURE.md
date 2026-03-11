@@ -39,7 +39,6 @@
 - Extraction remains read-only; short reads, warnings, and error statuses are preserved and surfaced exactly as before.
 - The current pass intentionally avoids speculative indexing/background scanning and focuses on deterministic throughput + UI responsiveness.
 
-
 ## GUI workspace refinements
 - Evidence summary fields (image path/format/size, selected partition, filesystem type) are pinned at the top of the main workspace for analyst context retention.
 - File listing uses model/view (`FileEntryTableModel` + `FileEntryFilterProxyModel`) to keep filtering/search responsive for large directories.

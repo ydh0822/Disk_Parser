@@ -14,6 +14,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
+#include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
@@ -30,6 +31,7 @@
 #include <QTableView>
 #include <QTextEdit>
 #include <QThread>
+#include <memory>
 #include <algorithm>
 #include <QToolBar>
 #include <QTreeWidget>
