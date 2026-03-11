@@ -2,6 +2,7 @@
 
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/domain/Models.h"
+#include "ForensicImageExtractor/forensics/TaskContext.h"
 
 #include <QObject>
 #include <memory>
@@ -16,13 +17,16 @@ public:
 
 public slots:
   void process();
+  void requestCancel();
 
 signals:
+  void progress(fie::forensics::ProgressInfo progress);
   void completed(std::vector<fie::domain::ExtractionResult> results, QString error);
 
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
   fie::domain::ExtractionTask m_task;
+  std::shared_ptr<forensics::CancellationToken> m_cancel;
 };
 
 } // namespace fie::workers

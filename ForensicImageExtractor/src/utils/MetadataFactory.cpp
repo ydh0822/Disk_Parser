@@ -14,8 +14,10 @@ domain::CatalogRecord createCatalogRecord(const domain::ImageInfo &image,
   r.inode = result.source.inode;
   r.deleted = result.source.isDeleted;
   r.allocated = result.source.isAllocated;
-  r.siTimestamps = result.source.ntfs.standardInfo;
-  r.fnTimestamps = result.source.ntfs.fileNameInfo;
+  if (result.source.metadata.ntfs) {
+    r.siTimestamps = result.source.metadata.ntfs->standardInfo;
+    r.fnTimestamps = result.source.metadata.ntfs->fileNameInfo;
+  }
   r.primaryOutcome = result.primaryOutcome;
   r.extractionStatus = result.status;
   r.destinationPath = result.destinationPath;

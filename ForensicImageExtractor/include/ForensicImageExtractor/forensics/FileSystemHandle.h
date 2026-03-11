@@ -17,6 +17,7 @@ public:
   void close();
   bool isOpen() const;
   QString type() const;
+  domain::FileSystemCapabilities capabilities() const;
   TSK_FS_INFO *fs() const;
 
 private:

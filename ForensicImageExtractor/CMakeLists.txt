@@ -20,12 +20,13 @@ add_library(fie_core
   src/core/EwfImageReader.cpp
   src/core/EwfSegmentResolver.cpp
   src/core/RawImageReader.cpp
+  src/core/ReadCache.cpp
   src/core/TskImageHandleAdapter.cpp
   src/core/TskReaderBridge.cpp
   src/domain/Models.cpp
   src/forensics/VolumeEnumerator.cpp
   src/forensics/FileSystemHandle.cpp
-  src/forensics/NtfsBrowser.cpp
+  src/forensics/FileSystemBrowser.cpp
   src/forensics/ExtractionService.cpp
   src/utils/Error.cpp
   src/utils/LogManager.cpp
@@ -62,6 +63,7 @@ endif()
 add_executable(ForensicImageExtractor
   src/app/main.cpp
   src/gui/MainWindow.cpp
+  src/gui/FileEntryTableModel.cpp
   src/workers/TaskRunner.cpp
   src/workers/ExtractionWorker.cpp
   src/workers/ForensicsWorkers.cpp
@@ -86,6 +88,9 @@ if(FIE_ENABLE_TESTS)
     tests/test_ImageReaderFactoryRouting.cpp
     tests/test_EwfSegmentDiscovery.cpp
     tests/test_ExtractionStatusSemantics.cpp
+    tests/test_FileSystemMetadataModel.cpp
+    tests/test_ReadCache.cpp
+    tests/test_ExtractionCancellationAndProgress.cpp
   )
   target_link_libraries(fie_tests PRIVATE fie_core Qt6::Widgets)
   add_test(NAME fie_tests COMMAND fie_tests)

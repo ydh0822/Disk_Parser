@@ -24,6 +24,19 @@ struct NtfsMetadata {
   QString attributes;
 };
 
+struct FileSystemCapabilities {
+  bool supportsNtfsSiFnTimestamps{false};
+  bool supportsAds{false};
+  bool supportsDeletedState{true};
+  bool supportsStableFileId{true};
+};
+
+struct GenericFileMetadata {
+  TimestampSet timestamps;
+  QString attributes;
+  std::optional<NtfsMetadata> ntfs;
+};
+
 struct ImageInfo {
   QString path;
   QString format;
@@ -47,7 +60,8 @@ struct FileEntry {
   bool isAllocated{true};
   quint64 sizeBytes{0};
   quint64 inode{0};
-  NtfsMetadata ntfs;
+  GenericFileMetadata metadata;
+  FileSystemCapabilities capabilities;
 };
 
 enum class OverwriteMode { SkipExisting, Overwrite, VersionedCopy };

@@ -3,14 +3,23 @@
 #include "ForensicImageExtractor/core/IImageReader.h"
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/domain/Models.h"
+#include "ForensicImageExtractor/gui/FileEntryTableModel.h"
 #include "ForensicImageExtractor/utils/LogManager.h"
 
 #include <QMainWindow>
+#include <functional>
 #include <memory>
 
 class QAction;
+class QCheckBox;
+class QComboBox;
+class QDockWidget;
+class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
-class QTableWidget;
+class QProgressBar;
+class QTableView;
+class QStandardItemModel;
 class QTextEdit;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -36,6 +45,8 @@ private:
   void populatePartitions();
   void populateFiles(QTreeWidgetItem *selectedTreeItem);
   void setBusy(bool busy, const QString &message = {});
+  void refreshEvidenceSummary();
+  QByteArray readPreviewBytes(const domain::FileEntry &entry, QString &error) const;
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -49,10 +60,31 @@ private:
   utils::LogManager m_logManager;
 
   QTreeWidget *m_partitionTree{nullptr};
-  QTableWidget *m_fileTable{nullptr};
+  QTableView *m_fileTable{nullptr};
+  FileEntryTableModel *m_fileModel{nullptr};
+  FileEntryFilterProxyModel *m_fileProxy{nullptr};
   QTextEdit *m_metadataPanel{nullptr};
+  QTextEdit *m_previewPanel{nullptr};
   QPlainTextEdit *m_logPanel{nullptr};
   QAction *m_stopAction{nullptr};
+  std::function<void()> m_cancelCurrentTask;
+
+  QLabel *m_imagePathValue{nullptr};
+  QLabel *m_imageFormatValue{nullptr};
+  QLabel *m_imageSizeValue{nullptr};
+  QLabel *m_partitionValue{nullptr};
+  QLabel *m_fsTypeValue{nullptr};
+
+  QLineEdit *m_nameFilterEdit{nullptr};
+  QCheckBox *m_deletedOnlyCheck{nullptr};
+  QCheckBox *m_adsOnlyCheck{nullptr};
+  QComboBox *m_typeFilterCombo{nullptr};
+
+  QDockWidget *m_extractionDock{nullptr};
+  QProgressBar *m_extractProgressBar{nullptr};
+  QLabel *m_extractSummaryLabel{nullptr};
+  QTableView *m_extractStatusView{nullptr};
+  QStandardItemModel *m_extractStatusModel{nullptr};
 };
 
 } // namespace fie::gui

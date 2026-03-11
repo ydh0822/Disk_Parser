@@ -43,6 +43,26 @@ void FileSystemHandle::close() {
 
 bool FileSystemHandle::isOpen() const { return m_fs != nullptr; }
 QString FileSystemHandle::type() const { return m_type; }
+
+domain::FileSystemCapabilities FileSystemHandle::capabilities() const {
+  domain::FileSystemCapabilities caps;
+#if defined(FIE_HAS_TSK)
+  if (!m_fs) {
+    return caps;
+  }
+  const auto ftype = m_fs->ftype;
+  const bool isNtfs = ((ftype & TSK_FS_TYPE_ISNTFS) != 0);
+  caps.supportsNtfsSiFnTimestamps = isNtfs;
+  caps.supportsAds = isNtfs;
+  caps.supportsDeletedState = true;
+  caps.supportsStableFileId = true;
+#else
+  caps.supportsDeletedState = false;
+  caps.supportsStableFileId = false;
+#endif
+  return caps;
+}
+
 TSK_FS_INFO *FileSystemHandle::fs() const { return m_fs; }
 
 } // namespace fie::forensics

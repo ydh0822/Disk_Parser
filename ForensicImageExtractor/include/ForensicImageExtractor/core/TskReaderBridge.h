@@ -4,6 +4,10 @@
 
 #include <memory>
 
+namespace fie::core {
+class ReadCache;
+}
+
 struct TSK_IMG_INFO;
 
 namespace fie::core {
@@ -19,6 +23,7 @@ public:
 
 struct ReaderBridgeState {
   std::shared_ptr<IImageReader> reader;
+  std::unique_ptr<ReadCache> cache;
   quint64 size{0};
   bool closed{false};
 };

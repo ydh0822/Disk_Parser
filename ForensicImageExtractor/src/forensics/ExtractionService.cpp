@@ -19,6 +19,20 @@ namespace {
 constexpr size_t kChunkSize = 4 * 1024 * 1024;
 constexpr int kMaxRecursionDepth = 256;
 
+void emitProgress(const TaskContext *context, const ProgressInfo &info) {
+  if (context && context->onProgress) {
+    context->onProgress(info);
+  }
+}
+
+bool cancelled(const TaskContext *context, QString &error) {
+  if (context && context->isCancellationRequested()) {
+    error = "Task cancelled";
+    return true;
+  }
+  return false;
+}
+
 #if defined(FIE_HAS_TSK)
 std::optional<QDateTime> toDateTime(time_t t) {
   if (t <= 0) {
@@ -27,7 +41,8 @@ std::optional<QDateTime> toDateTime(time_t t) {
   return QDateTime::fromSecsSinceEpoch(static_cast<qint64>(t), Qt::UTC);
 }
 
-fie::domain::FileEntry toChildEntry(const TSK_FS_FILE *file, const QString &parentPath) {
+fie::domain::FileEntry toChildEntry(const TSK_FS_FILE *file, const QString &parentPath,
+                                    const fie::domain::FileSystemCapabilities &capabilities) {
   fie::domain::FileEntry e;
   const QString name = QString::fromUtf8(file->name->name ? file->name->name : "");
   e.name = name;
@@ -36,29 +51,35 @@ fie::domain::FileEntry toChildEntry(const TSK_FS_FILE *file, const QString &pare
   e.inode = file->name->meta_addr;
   e.isAllocated = !(file->name->flags & TSK_FS_NAME_FLAG_UNALLOC);
   e.isDeleted = !e.isAllocated;
+  e.capabilities = capabilities;
   if (file->meta) {
     e.sizeBytes = static_cast<quint64>(file->meta->size);
-    e.ntfs.standardInfo.created = toDateTime(file->meta->crtime);
-    e.ntfs.standardInfo.modified = toDateTime(file->meta->mtime);
-    e.ntfs.standardInfo.entryModified = toDateTime(file->meta->ctime);
-    e.ntfs.standardInfo.accessed = toDateTime(file->meta->atime);
+    e.metadata.timestamps.created = toDateTime(file->meta->crtime);
+    e.metadata.timestamps.modified = toDateTime(file->meta->mtime);
+    e.metadata.timestamps.entryModified = toDateTime(file->meta->ctime);
+    e.metadata.timestamps.accessed = toDateTime(file->meta->atime);
 
-    const int attrCount = tsk_fs_file_attr_getsize(file);
-    for (int attrIdx = 0; attrIdx < attrCount; ++attrIdx) {
-      const TSK_FS_ATTR *attr = tsk_fs_file_attr_get_idx(file, attrIdx);
-      if (!attr || attr->type != TSK_FS_ATTR_TYPE_NTFS_DATA) {
-        continue;
+    if (capabilities.supportsAds || capabilities.supportsNtfsSiFnTimestamps) {
+      fie::domain::NtfsMetadata ntfs;
+      ntfs.standardInfo = e.metadata.timestamps;
+      const int attrCount = tsk_fs_file_attr_getsize(file);
+      for (int attrIdx = 0; attrIdx < attrCount; ++attrIdx) {
+        const TSK_FS_ATTR *attr = tsk_fs_file_attr_get_idx(file, attrIdx);
+        if (!attr || attr->type != TSK_FS_ATTR_TYPE_NTFS_DATA) {
+          continue;
+        }
+        if (attr->name && attr->name[0] != '\0') {
+          ntfs.hasAds = true;
+          ntfs.adsNames.push_back(QString::fromUtf8(attr->name));
+        }
       }
-      if (attr->name && attr->name[0] != '\0') {
-        e.ntfs.hasAds = true;
-        e.ntfs.adsNames.push_back(QString::fromUtf8(attr->name));
-      }
+      ntfs.fileNameInfo.created = toDateTime(file->name->crtime);
+      ntfs.fileNameInfo.modified = toDateTime(file->name->mtime);
+      ntfs.fileNameInfo.entryModified = toDateTime(file->name->ctime);
+      ntfs.fileNameInfo.accessed = toDateTime(file->name->atime);
+      e.metadata.ntfs = std::move(ntfs);
     }
   }
-  e.ntfs.fileNameInfo.created = toDateTime(file->name->crtime);
-  e.ntfs.fileNameInfo.modified = toDateTime(file->name->mtime);
-  e.ntfs.fileNameInfo.entryModified = toDateTime(file->name->ctime);
-  e.ntfs.fileNameInfo.accessed = toDateTime(file->name->atime);
   return e;
 }
 
@@ -67,8 +88,13 @@ void collectRecursive(const FileSystemHandle &fs,
                       std::vector<fie::domain::FileEntry> &out,
                       QSet<QString> &visitedPaths,
                       QSet<quint64> &visitedDirInodes,
+                      const fie::domain::FileSystemCapabilities &capabilities,
                       int depth,
-                      QString &error) {
+                      QString &error,
+                      const TaskContext *context) {
+  if (cancelled(context, error)) {
+    return;
+  }
   if (depth > kMaxRecursionDepth) {
     error = QString("Recursion depth exceeded at path: %1").arg(seed.fullPath);
     return;
@@ -98,6 +124,9 @@ void collectRecursive(const FileSystemHandle &fs,
   }
 
   for (size_t i = 0; i < dir->names_used; ++i) {
+    if (cancelled(context, error)) {
+      break;
+    }
     const TSK_FS_FILE *file = tsk_fs_dir_get(dir, i);
     if (!file || !file->name || !file->name->name) {
       continue;
@@ -107,8 +136,8 @@ void collectRecursive(const FileSystemHandle &fs,
       continue;
     }
 
-    auto child = toChildEntry(file, seed.fullPath);
-    collectRecursive(fs, child, out, visitedPaths, visitedDirInodes, depth + 1, error);
+    auto child = toChildEntry(file, seed.fullPath, capabilities);
+    collectRecursive(fs, child, out, visitedPaths, visitedDirInodes, capabilities, depth + 1, error, context);
     if (!error.isEmpty()) {
       break;
     }
@@ -120,9 +149,39 @@ void collectRecursive(const FileSystemHandle &fs,
 
 } // namespace
 
+bool ExtractionService::simulateChunkLoopForTesting(quint64 totalBytes,
+                                                    quint64 chunkSize,
+                                                    QString &error,
+                                                    const TaskContext *context) {
+  if (chunkSize == 0) {
+    error = "chunkSize must be greater than 0";
+    return false;
+  }
+
+  quint64 processed = 0;
+  while (processed < totalBytes) {
+    if (cancelled(context, error)) {
+      return false;
+    }
+    const quint64 step = std::min(chunkSize, totalBytes - processed);
+    processed += step;
+    ProgressInfo progress;
+    progress.currentPath = "/simulated";
+    progress.currentFileIndex = 1;
+    progress.totalFiles = 1;
+    progress.fileBytesProcessed = processed;
+    progress.fileBytesTotal = totalBytes;
+    progress.totalBytesProcessed = processed;
+    progress.totalBytesEstimated = totalBytes;
+    emitProgress(context, progress);
+  }
+  return true;
+}
+
 std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSystemHandle &fs,
                                                                  const domain::ExtractionTask &task,
-                                                                 QString &error) const {
+                                                                 QString &error,
+                                                                 const TaskContext *context) const {
   std::vector<domain::ExtractionResult> results;
   if (!fs.isOpen()) {
     error = "Cannot extract: filesystem not open";
@@ -131,11 +190,12 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
 
 #if defined(FIE_HAS_TSK)
   std::vector<domain::FileEntry> worklist;
+  const auto capabilities = fs.capabilities();
   QSet<QString> seenPaths;
   QSet<quint64> seenDirInodes;
   for (const auto &entry : task.entries) {
     std::vector<domain::FileEntry> expanded;
-    collectRecursive(fs, entry, expanded, seenPaths, seenDirInodes, 0, error);
+    collectRecursive(fs, entry, expanded, seenPaths, seenDirInodes, capabilities, 0, error, context);
     if (!error.isEmpty()) {
       return results;
     }
@@ -144,7 +204,19 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
     }
   }
 
-  for (const auto &entry : worklist) {
+  quint64 totalBytesEstimated = 0;
+  for (const auto &e : worklist) {
+    if (!e.isDirectory) {
+      totalBytesEstimated += e.sizeBytes;
+    }
+  }
+  quint64 totalBytesProcessed = 0;
+
+  for (int idx = 0; idx < static_cast<int>(worklist.size()); ++idx) {
+    if (cancelled(context, error)) {
+      return results;
+    }
+    const auto &entry = worklist[static_cast<size_t>(idx)];
     domain::ExtractionResult res;
     res.source = entry;
     const QString requestedPath = utils::composeDestinationPath(task.destinationRoot, entry.fullPath);
@@ -159,6 +231,15 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
         res.status = res.primaryOutcome;
         res.destinationPath = requestedPath;
       }
+      ProgressInfo progress;
+      progress.currentPath = entry.fullPath;
+      progress.currentFileIndex = idx + 1;
+      progress.totalFiles = static_cast<int>(worklist.size());
+      progress.fileBytesProcessed = 0;
+      progress.fileBytesTotal = 0;
+      progress.totalBytesProcessed = totalBytesProcessed;
+      progress.totalBytesEstimated = totalBytesEstimated;
+      emitProgress(context, progress);
       results.push_back(res);
       continue;
     }
@@ -178,6 +259,16 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
       res.status = res.primaryOutcome;
       res.destinationPath = destinationPath;
       res.bytesWritten = 0;
+      totalBytesProcessed += entry.sizeBytes;
+      ProgressInfo progress;
+      progress.currentPath = entry.fullPath;
+      progress.currentFileIndex = idx + 1;
+      progress.totalFiles = static_cast<int>(worklist.size());
+      progress.fileBytesProcessed = entry.sizeBytes;
+      progress.fileBytesTotal = entry.sizeBytes;
+      progress.totalBytesProcessed = totalBytesProcessed;
+      progress.totalBytesEstimated = totalBytesEstimated;
+      emitProgress(context, progress);
       results.push_back(res);
       continue;
     }
@@ -217,6 +308,11 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
     bool writeFailed = false;
 
     while (offset < expectedSize) {
+      if (cancelled(context, error)) {
+        out.close();
+        tsk_fs_file_close(tskFile);
+        return results;
+      }
       const quint64 remaining = expectedSize - offset;
       const size_t ask = static_cast<size_t>(std::min<quint64>(remaining, kChunkSize));
       const auto got = tsk_fs_file_read(tskFile, static_cast<TSK_OFF_T>(offset), buffer.data(), ask,
@@ -251,12 +347,22 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
 
       offset += static_cast<quint64>(got);
       totalWritten += static_cast<quint64>(written);
+      ProgressInfo progress;
+      progress.currentPath = entry.fullPath;
+      progress.currentFileIndex = idx + 1;
+      progress.totalFiles = static_cast<int>(worklist.size());
+      progress.fileBytesProcessed = totalWritten;
+      progress.fileBytesTotal = expectedSize;
+      progress.totalBytesProcessed = totalBytesProcessed + totalWritten;
+      progress.totalBytesEstimated = totalBytesEstimated;
+      emitProgress(context, progress);
     }
 
     out.close();
     tsk_fs_file_close(tskFile);
 
     res.bytesWritten = totalWritten;
+    totalBytesProcessed += totalWritten;
 
     if (readFailed || writeFailed) {
       res.destinationPath = destinationPath;
@@ -296,6 +402,7 @@ std::vector<domain::ExtractionResult> ExtractionService::extract(const FileSyste
   }
 #else
   Q_UNUSED(task)
+  Q_UNUSED(context)
   error = "TSK support is unavailable at build time";
 #endif
 

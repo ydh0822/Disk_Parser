@@ -7,12 +7,13 @@ Forensic Image Extractor is a Qt 6 Widgets desktop application for read-only for
 - E01/EWF image open via `EwfImageReader` using libewf with deterministic segment discovery across E##/EX##/S## variants (including non-fatal gap warnings).
 - Real TSK-backed partition enumeration.
 - Real filesystem open at selected partition offset.
-- Real NTFS directory listing via TSK directory APIs.
+- Real generic filesystem directory listing via TSK directory APIs, with optional NTFS metadata enrichment when applicable.
 - Recursive subtree extraction for selected directories.
 - Chunked streaming extraction (4 MiB blocks), incremental SHA-256 (optional MD5), and zero-byte handling with explicit status taxonomy (e.g., `short_read`, `read_failed`, `write_failed`, `success_versioned`).
 - Overwrite policies: `SkipExisting`, `Overwrite`, `VersionedCopy`.
 - GUI directory navigation through partition/directory tree nodes with load-state caching.
-- JSON/CSV metadata catalog export preserving SI and FN timestamps separately.
+- Evidence summary header, interactive table filters (name/deleted/type/ADS), safe first-bytes preview, and extraction progress workspace dock.
+- JSON/CSV metadata catalog export with generic timestamps and optional NTFS SI/FN timestamp preservation.
 
 ## E01 + TSK interoperability note
 - The code now explicitly separates TSK open backends (reader-bridge vs path-based fallback) in `TskImageHandleAdapter`.
@@ -26,11 +27,11 @@ Catalog records include:
 - logical path
 - file name
 - size
-- inode/MFT
+- inode/file identifier
 - deleted and allocated flags
-- SI timestamps
-- FN timestamps
-- ADS detection names when available
+- generic filesystem timestamps
+- NTFS SI/FN timestamps when available
+- ADS detection names when available on NTFS
 - destination path
 - SHA-256
 - status
@@ -56,6 +57,5 @@ ctest --test-dir build --output-on-failure -C Release
 CMake supports either system packages or direct cache variables:
 - `TSK_INCLUDE_DIR`, `TSK_LIBRARY`
 - `LIBEWF_INCLUDE_DIR`, `LIBEWF_LIBRARY`
-
 
 - TSK open warnings are emitted separately from hard errors in worker/UI flow.

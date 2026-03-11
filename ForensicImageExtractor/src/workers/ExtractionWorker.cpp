@@ -6,7 +6,10 @@ namespace fie::workers {
 
 ExtractionWorker::ExtractionWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
                                    fie::domain::ExtractionTask task)
-    : m_tskImage(std::move(tskImage)), m_task(std::move(task)) {}
+    : m_tskImage(std::move(tskImage)), m_task(std::move(task)),
+      m_cancel(std::make_shared<forensics::CancellationToken>()) {}
+
+void ExtractionWorker::requestCancel() { m_cancel->cancel(); }
 
 void ExtractionWorker::process() {
   if (!m_tskImage || !m_tskImage->isOpen()) {
@@ -21,8 +24,12 @@ void ExtractionWorker::process() {
     return;
   }
 
+  forensics::TaskContext context;
+  context.cancellation = m_cancel;
+  context.onProgress = [this](const forensics::ProgressInfo &info) { emit progress(info); };
+
   forensics::ExtractionService service;
-  const auto results = service.extract(fs, m_task, error);
+  const auto results = service.extract(fs, m_task, error, &context);
   emit completed(results, error);
 }
 

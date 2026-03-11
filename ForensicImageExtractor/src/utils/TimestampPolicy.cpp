@@ -12,15 +12,15 @@ bool TimestampPolicy::applyHostFileTimes(const QString &path, const domain::File
   }
 
   bool ok = true;
-  if (entry.ntfs.standardInfo.modified) {
-    ok = ok && file.setFileTime(*entry.ntfs.standardInfo.modified, QFileDevice::FileModificationTime);
+  if (entry.metadata.timestamps.modified) {
+    ok = ok && file.setFileTime(*entry.metadata.timestamps.modified, QFileDevice::FileModificationTime);
   }
-  if (entry.ntfs.standardInfo.accessed) {
-    ok = ok && file.setFileTime(*entry.ntfs.standardInfo.accessed, QFileDevice::FileAccessTime);
+  if (entry.metadata.timestamps.accessed) {
+    ok = ok && file.setFileTime(*entry.metadata.timestamps.accessed, QFileDevice::FileAccessTime);
   }
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-  if (entry.ntfs.standardInfo.created) {
-    ok = ok && file.setFileTime(*entry.ntfs.standardInfo.created, QFileDevice::FileBirthTime);
+  if (entry.metadata.timestamps.created) {
+    ok = ok && file.setFileTime(*entry.metadata.timestamps.created, QFileDevice::FileBirthTime);
   }
 #endif
 
