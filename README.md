@@ -16,9 +16,10 @@ Forensic Image Extractor is a Qt 6 Widgets desktop application for read-only for
 - JSON/CSV metadata catalog export with generic timestamps and optional NTFS SI/FN timestamp preservation.
 
 ## E01 + TSK interoperability note
-- The code now explicitly separates TSK open backends (reader-bridge vs path-based fallback) in `TskImageHandleAdapter`.
-- The current operational path still uses TSK path-based open for filesystem analysis.
-- The reader-backed callback bridge now has concrete scaffolding (`TskReaderBridgeScaffold`) and remains intentionally unfinished for callback-backed completion.
+- `TskImageHandleAdapter` now attempts a reader-backed TSK image open first through `TskReaderBridge`.
+- For libewf-backed E01/EWF images, TSK is now fed through the `IImageReader` callback bridge as the primary operational path.
+- Path-based TSK open remains available only as a fallback path and is surfaced as a warning (not a hard error) when used.
+- If both reader-backed and path-based open fail, the user receives a combined hard error message with both failure reasons.
 
 ## Metadata fidelity
 Catalog records include:
@@ -59,3 +60,5 @@ CMake supports either system packages or direct cache variables:
 - `LIBEWF_INCLUDE_DIR`, `LIBEWF_LIBRARY`
 
 - TSK open warnings are emitted separately from hard errors in worker/UI flow.
+- Reader-backed bridge operation requires a build with TSK external-image callback support enabled (`FIE_HAS_TSK`).
+- If TSK support is unavailable at build time, reader-backed open is skipped and path-based open remains the only available mode.

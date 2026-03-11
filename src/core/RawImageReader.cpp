@@ -1,5 +1,7 @@
 #include "ForensicImageExtractor/core/RawImageReader.h"
 
+#include <limits>
+
 namespace fie::core {
 
 bool RawImageReader::open(const QString &imagePath, QString &error) {
@@ -21,6 +23,11 @@ void RawImageReader::close() {
 QByteArray RawImageReader::read(quint64 offset, quint64 size, QString &error) {
   if (!isOpen()) {
     error = "Image is not open";
+    return {};
+  }
+  if (offset > static_cast<quint64>(std::numeric_limits<qint64>::max()) ||
+      size > static_cast<quint64>(std::numeric_limits<qint64>::max())) {
+    error = "Requested RAW read exceeds Qt QFile API limits";
     return {};
   }
   if (!m_file.seek(static_cast<qint64>(offset))) {

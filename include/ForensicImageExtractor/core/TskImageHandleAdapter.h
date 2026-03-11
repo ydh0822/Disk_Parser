@@ -25,6 +25,7 @@ struct TskOpenResolution {
 class TskImageHandleAdapter {
 public:
   explicit TskImageHandleAdapter(std::shared_ptr<IImageReader> reader);
+  TskImageHandleAdapter(std::shared_ptr<IImageReader> reader, std::unique_ptr<ITskReaderBridge> readerBridge);
   ~TskImageHandleAdapter();
 
   bool open(QString &error);

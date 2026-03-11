@@ -9,7 +9,11 @@
 namespace fie::core {
 
 TskImageHandleAdapter::TskImageHandleAdapter(std::shared_ptr<IImageReader> reader)
-    : m_reader(std::move(reader)), m_readerBridge(std::make_unique<TskReaderBridgeScaffold>()) {}
+    : m_reader(std::move(reader)), m_readerBridge(std::make_unique<TskReaderBridge>()) {}
+
+TskImageHandleAdapter::TskImageHandleAdapter(std::shared_ptr<IImageReader> reader,
+                                             std::unique_ptr<ITskReaderBridge> readerBridge)
+    : m_reader(std::move(reader)), m_readerBridge(std::move(readerBridge)) {}
 
 TskImageHandleAdapter::~TskImageHandleAdapter() { close(); }
 
