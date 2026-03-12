@@ -43,6 +43,22 @@
 - Extraction remains read-only; short reads, warnings, and error statuses are preserved and surfaced exactly as before.
 - The current pass intentionally avoids speculative indexing/background scanning and focuses on deterministic throughput + UI responsiveness.
 
+
+## Artifact Explorer MVP (Phase 1)
+- `forensics::ArtifactDiscoveryService` is a domain/service layer that resolves Windows artifact paths from discovered `/Users/*` profiles plus system-wide locations.
+- The service consumes a directory-list callback so path resolution logic is testable without widget dependencies.
+- Output is `domain::ArtifactRecord` (category, artifact name, profile, logical path, status, size/timestamp, partition/filesystem context, notes).
+- `workers::ArtifactScanWorker` wires GUI async execution to the service and returns both artifact rows and partial-failure warnings for analyst visibility.
+- Missing resolver targets are represented as `ArtifactRecord.status="Missing"` (not warnings); warnings are reserved for traversal/listing failures and cancellation/error conditions.
+- `gui::ArtifactTableModel` and the MainWindow `Artifacts` tab provide scan/extract/copy/jump actions while reusing existing extraction/catalog plumbing.
+- Artifact scan entry is softly gated by a lightweight heuristic (partition FS type + `/Windows` root presence probe) to avoid noisy scans on clearly non-Windows targets; this is intentionally best-effort, not authoritative OS detection.
+
+## File browser upgrade (Phase 2 incremental)
+- `FileEntryTableModel` exposes additional forensic triage columns (logical path + allocated state) while preserving existing timestamp/ADS metadata surfaces.
+- `FileEntryFilterProxyModel` now supports allocated-only, extension, and path-content filters in addition to existing deleted/type/ADS/name filters.
+- File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context.
+- Metadata shown in the browser remains sourced from existing `forensics::FileSystemBrowser` (TSK directory/meta fields + NTFS-specific enrichment where available).
+
 ## GUI workspace refinements
 - Evidence summary fields (image path/format/size, selected partition, filesystem type) are pinned at the top of the main workspace for analyst context retention.
 - File listing uses model/view (`FileEntryTableModel` + `FileEntryFilterProxyModel`) to keep filtering/search responsive for large directories.

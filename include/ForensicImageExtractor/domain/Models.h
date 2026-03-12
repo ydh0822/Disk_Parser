@@ -64,6 +64,21 @@ struct FileEntry {
   FileSystemCapabilities capabilities;
 };
 
+
+struct ArtifactRecord {
+  QString category;
+  QString artifactName;
+  QString profile;
+  QString sourceLogicalPath;
+  QString status;
+  bool directoryTarget{false};
+  quint64 sizeBytes{0};
+  std::optional<QDateTime> keyTimestamp;
+  QString partitionIdentifier;
+  QString fileSystemType;
+  QString notes;
+};
+
 enum class OverwriteMode { SkipExisting, Overwrite, VersionedCopy };
 
 struct AppSettings {
@@ -124,6 +139,8 @@ Q_DECLARE_METATYPE(fie::domain::ImageInfo)
 Q_DECLARE_METATYPE(fie::domain::PartitionInfo)
 Q_DECLARE_METATYPE(fie::domain::FileEntry)
 Q_DECLARE_METATYPE(fie::domain::ExtractionResult)
+Q_DECLARE_METATYPE(fie::domain::ArtifactRecord)
 Q_DECLARE_METATYPE(std::vector<fie::domain::PartitionInfo>)
 Q_DECLARE_METATYPE(std::vector<fie::domain::FileEntry>)
 Q_DECLARE_METATYPE(std::vector<fie::domain::ExtractionResult>)
+Q_DECLARE_METATYPE(std::vector<fie::domain::ArtifactRecord>)

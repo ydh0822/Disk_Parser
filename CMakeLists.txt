@@ -34,6 +34,7 @@ add_library(fie_core
   src/forensics/FileSystemBrowser.cpp
   src/forensics/NtfsBrowser.cpp
   src/forensics/ExtractionService.cpp
+  src/forensics/ArtifactDiscoveryService.cpp
   src/utils/Error.cpp
   src/utils/LogManager.cpp
   src/utils/PathUtils.cpp
@@ -76,6 +77,7 @@ if(FIE_ENABLE_GUI)
     src/app/main.cpp
     src/gui/MainWindow.cpp
     src/gui/FileEntryTableModel.cpp
+    src/gui/ArtifactTableModel.cpp
     src/workers/TaskRunner.cpp
     src/workers/ExtractionWorker.cpp
     src/workers/ForensicsWorkers.cpp
@@ -115,6 +117,7 @@ if(FIE_ENABLE_TESTS)
     tests/test_EndToEndSemantics.cpp
     tests/test_CliOptions.cpp
     tests/test_ForensicEdgeCases.cpp
+    tests/test_ArtifactDiscoveryService.cpp
   )
   target_link_libraries(fie_tests PRIVATE fie_core Qt6::Core)
   add_test(NAME fie_tests COMMAND fie_tests)

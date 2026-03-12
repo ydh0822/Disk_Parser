@@ -4,6 +4,7 @@
 #include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
 #include "ForensicImageExtractor/forensics/FileSystemHandle.h"
 #include "ForensicImageExtractor/forensics/VolumeEnumerator.h"
+#include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
 
 namespace fie::workers {
 
@@ -97,6 +98,49 @@ void DirectoryListWorker::process() {
   forensics::FileSystemBrowser browser;
   auto entries = browser.listDirectory(fs, m_path, error);
   emit completed(entries, m_cancel->isCancellationRequested() ? "Task cancelled" : error);
+}
+
+
+ArtifactScanWorker::ArtifactScanWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
+                                       fie::domain::PartitionInfo partition)
+    : m_tskImage(std::move(tskImage)), m_partition(std::move(partition)),
+      m_cancel(std::make_shared<forensics::CancellationToken>()) {}
+
+void ArtifactScanWorker::requestCancel() { m_cancel->cancel(); }
+
+void ArtifactScanWorker::process() {
+  if (!m_tskImage || !m_tskImage->isOpen()) {
+    emit completed({}, {}, "TSK image not open");
+    return;
+  }
+  if (m_cancel->isCancellationRequested()) {
+    emit completed({}, {}, "Task cancelled");
+    return;
+  }
+
+  QString error;
+  forensics::FileSystemHandle fs;
+  if (!fs.open(*m_tskImage, m_partition, error)) {
+    emit completed({}, {}, error);
+    return;
+  }
+
+  forensics::FileSystemBrowser browser;
+  forensics::ArtifactDiscoveryService discovery;
+  QStringList warnings;
+  const auto artifacts = discovery.discover(
+      m_partition,
+      [&browser, &fs](const QString &path, QString &listError) {
+        return browser.listDirectory(fs, path, listError);
+      },
+      warnings,
+      [this]() { return m_cancel->isCancellationRequested(); });
+
+  if (m_cancel->isCancellationRequested()) {
+    emit completed({}, warnings, "Task cancelled");
+    return;
+  }
+  emit completed(artifacts, warnings, QString());
 }
 
 } // namespace fie::workers

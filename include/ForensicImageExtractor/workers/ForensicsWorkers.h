@@ -65,4 +65,24 @@ private:
   std::shared_ptr<forensics::CancellationToken> m_cancel;
 };
 
+
+class ArtifactScanWorker : public QObject {
+  Q_OBJECT
+public:
+  ArtifactScanWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
+                     fie::domain::PartitionInfo partition);
+
+public slots:
+  void process();
+  void requestCancel();
+
+signals:
+  void completed(std::vector<fie::domain::ArtifactRecord> artifacts, QStringList warnings, QString error);
+
+private:
+  std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
+  fie::domain::PartitionInfo m_partition;
+  std::shared_ptr<forensics::CancellationToken> m_cancel;
+};
+
 } // namespace fie::workers
