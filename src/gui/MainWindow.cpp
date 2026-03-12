@@ -6,6 +6,8 @@
 #include "ForensicImageExtractor/utils/MetadataSerializerJson.h"
 #include "ForensicImageExtractor/workers/ExtractionWorker.h"
 #include "ForensicImageExtractor/workers/ForensicsWorkers.h"
+#include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
+#include "ForensicImageExtractor/forensics/FileSystemHandle.h"
 
 #include <QAction>
 #include <QCheckBox>
@@ -13,12 +15,15 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QGroupBox>
 #include <QHash>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenuBar>
+#include <QMenu>
+#include <QFile>
 #include <QMessageBox>
 #include <QMetaType>
 #include <QPlainTextEdit>
@@ -28,6 +33,10 @@
 #include <QSplitter>
 #include <QStandardItemModel>
 #include <QStatusBar>
+#include <QTabWidget>
+#include <QPushButton>
+#include <QClipboard>
+#include <QApplication>
 #include <QTableView>
 #include <QTextEdit>
 #include <QThread>
@@ -110,12 +119,20 @@ void MainWindow::setupUi() {
   m_nameFilterEdit = new QLineEdit(filterBox);
   m_nameFilterEdit->setPlaceholderText("name contains...");
   m_deletedOnlyCheck = new QCheckBox("Deleted only", filterBox);
+  m_allocatedOnlyCheck = new QCheckBox("Allocated only", filterBox);
   m_adsOnlyCheck = new QCheckBox("ADS only", filterBox);
+  m_extensionFilterEdit = new QLineEdit(filterBox);
+  m_extensionFilterEdit->setPlaceholderText("e.g. .exe");
+  m_pathFilterEdit = new QLineEdit(filterBox);
+  m_pathFilterEdit->setPlaceholderText("path contains...");
   m_typeFilterCombo = new QComboBox(filterBox);
   m_typeFilterCombo->addItems({"All", "Files only", "Directories only"});
   filterForm->addRow("Name", m_nameFilterEdit);
   filterForm->addRow("Type", m_typeFilterCombo);
+  filterForm->addRow("Extension", m_extensionFilterEdit);
+  filterForm->addRow("Path", m_pathFilterEdit);
   filterForm->addRow("", m_deletedOnlyCheck);
+  filterForm->addRow("", m_allocatedOnlyCheck);
   filterForm->addRow("", m_adsOnlyCheck);
 
   auto *topSplitter = new QSplitter(Qt::Horizontal, rootWidget);
@@ -135,12 +152,46 @@ void MainWindow::setupUi() {
   m_fileProxy = new FileEntryFilterProxyModel(this);
   m_fileProxy->setSourceModel(m_fileModel);
 
-  m_fileTable = new QTableView(mainSplitter);
+  m_centerTabs = new QTabWidget(mainSplitter);
+  m_fileTable = new QTableView(m_centerTabs);
   m_fileTable->setModel(m_fileProxy);
   m_fileTable->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_fileTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_fileTable->setSortingEnabled(true);
   m_fileTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+  auto *artifactTab = new QWidget(m_centerTabs);
+  auto *artifactLayout = new QVBoxLayout(artifactTab);
+  auto *artifactButtons = new QWidget(artifactTab);
+  auto *artifactButtonsLayout = new QHBoxLayout(artifactButtons);
+  auto *scanArtifactsButton = new QPushButton("Refresh / Re-scan", artifactButtons);
+  auto *extractArtifactButton = new QPushButton("Extract selected", artifactButtons);
+  auto *jumpArtifactButton = new QPushButton("Jump to file system", artifactButtons);
+  auto *copyArtifactPathButton = new QPushButton("Copy logical path", artifactButtons);
+  artifactButtonsLayout->addWidget(scanArtifactsButton);
+  artifactButtonsLayout->addWidget(extractArtifactButton);
+  artifactButtonsLayout->addWidget(jumpArtifactButton);
+  artifactButtonsLayout->addWidget(copyArtifactPathButton);
+  artifactButtonsLayout->addStretch(1);
+  artifactLayout->addWidget(artifactButtons);
+  m_artifactModel = new ArtifactTableModel(this);
+  m_artifactProxy = new ArtifactSortProxyModel(this);
+  m_artifactProxy->setSourceModel(m_artifactModel);
+  m_artifactTable = new QTableView(artifactTab);
+  m_artifactTable->setModel(m_artifactProxy);
+  m_artifactTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_artifactTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
+  m_artifactTable->setSortingEnabled(true);
+  m_artifactTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  artifactLayout->addWidget(m_artifactTable, 1);
+
+  m_centerTabs->addTab(m_fileTable, "Files");
+  m_centerTabs->addTab(artifactTab, "Artifacts");
+
+  connect(scanArtifactsButton, &QPushButton::clicked, this, &MainWindow::onScanArtifacts);
+  connect(extractArtifactButton, &QPushButton::clicked, this, &MainWindow::onArtifactExtractSelected);
+  connect(jumpArtifactButton, &QPushButton::clicked, this, &MainWindow::onArtifactJumpToFileSystem);
+  connect(copyArtifactPathButton, &QPushButton::clicked, this, &MainWindow::onArtifactCopyPath);
 
   auto *rightPanel = new QWidget(mainSplitter);
   auto *rightLayout = new QVBoxLayout(rightPanel);
@@ -154,7 +205,7 @@ void MainWindow::setupUi() {
   rightLayout->addWidget(m_previewPanel, 1);
 
   mainSplitter->addWidget(leftPanel);
-  mainSplitter->addWidget(m_fileTable);
+  mainSplitter->addWidget(m_centerTabs);
   mainSplitter->addWidget(rightPanel);
   mainSplitter->setStretchFactor(0, 2);
   mainSplitter->setStretchFactor(1, 4);
@@ -187,12 +238,70 @@ void MainWindow::setupUi() {
 
   connect(m_partitionTree, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onPartitionSelected);
   connect(m_fileTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::onFileSelected);
+  connect(m_artifactTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::onArtifactSelectionChanged);
   connect(m_nameFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setNameContains);
   connect(m_deletedOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setDeletedOnly);
+  connect(m_allocatedOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setAllocatedOnly);
   connect(m_adsOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setAdsOnly);
+  connect(m_extensionFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setExtensionFilter);
+  connect(m_pathFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setPathContains);
   connect(m_typeFilterCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
     m_fileProxy->setFilesOnly(idx == 1);
     m_fileProxy->setDirectoriesOnly(idx == 2);
+  });
+
+  m_fileTable->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(m_fileTable, &QWidget::customContextMenuRequested, this, [this](const QPoint &pt) {
+    QMenu menu(this);
+    auto *extract = menu.addAction("Extract");
+    auto *copyPath = menu.addAction("Copy logical path");
+    auto *jumpParent = menu.addAction("Jump to parent");
+    auto *exportMeta = menu.addAction("Export row metadata");
+    auto *relatedArtifact = menu.addAction("Open related artifact context");
+    auto *chosen = menu.exec(m_fileTable->viewport()->mapToGlobal(pt));
+    if (!chosen) return;
+
+    const auto rows = m_fileTable->selectionModel()->selectedRows();
+    if (rows.isEmpty()) return;
+    const auto source = m_fileProxy->mapToSource(rows.first());
+    const auto *entry = m_fileModel->entryAt(source.row());
+    if (!entry) return;
+
+    if (chosen == extract) {
+      onExtractSelected();
+    } else if (chosen == copyPath) {
+      QApplication::clipboard()->setText(entry->fullPath);
+    } else if (chosen == jumpParent) {
+      const auto parent = entry->fullPath.left(entry->fullPath.lastIndexOf('/'));
+      loadDirectoryAtPath(parent.isEmpty() ? "/" : parent);
+    } else if (chosen == relatedArtifact) {
+      for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
+        const auto *artifact = m_artifactModel->artifactAt(r);
+        if (!artifact) continue;
+        const auto artifactPath = artifact->sourceLogicalPath;
+        const bool exact = artifactPath.compare(entry->fullPath, Qt::CaseInsensitive) == 0;
+        const bool artifactContainsFile = entry->fullPath.startsWith(artifactPath + '/', Qt::CaseInsensitive);
+        const bool fileContainsArtifact = artifactPath.startsWith(entry->fullPath + '/', Qt::CaseInsensitive);
+        if (exact || artifactContainsFile || fileContainsArtifact) {
+          m_centerTabs->setCurrentIndex(1);
+          const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(r, 0));
+          if (proxyRow.isValid()) m_artifactTable->selectRow(proxyRow.row());
+          break;
+        }
+      }
+    } else if (chosen == exportMeta) {
+      const auto path = QFileDialog::getSaveFileName(this, "Export row metadata", {}, "JSON (*.json)");
+      if (path.isEmpty()) return;
+      QFile f(path);
+      if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return;
+      const QString payload = QString("{\n  \"path\": \"%1\",\n  \"inode\": %2,\n  \"size\": %3,\n  \"deleted\": %4,\n  \"allocated\": %5\n}\n")
+                                  .arg(entry->fullPath)
+                                  .arg(entry->inode)
+                                  .arg(entry->sizeBytes)
+                                  .arg(entry->isDeleted ? "true" : "false")
+                                  .arg(entry->isAllocated ? "true" : "false");
+      f.write(payload.toUtf8());
+    }
   });
 
   refreshEvidenceSummary();
@@ -214,6 +323,8 @@ void MainWindow::setupMenu() {
     m_partitionTree->clear();
     m_fileModel->setEntries({});
     m_extractStatusModel->removeRows(0, m_extractStatusModel->rowCount());
+    m_artifacts.clear();
+    m_artifactModel->setArtifacts({});
     refreshEvidenceSummary();
   });
   fileMenu->addAction("Export Metadata Catalog", this, &MainWindow::onExportCatalog);
@@ -227,6 +338,7 @@ void MainWindow::setupMenu() {
   tb->addAction("Open image", this, &MainWindow::onOpenImage);
   tb->addAction("Refresh", this, &MainWindow::onPartitionSelected);
   tb->addAction("Extract selected", this, &MainWindow::onExtractSelected);
+  tb->addAction("Scan artifacts", this, &MainWindow::onScanArtifacts);
   tb->addAction("Export catalog", this, &MainWindow::onExportCatalog);
   m_stopAction = tb->addAction("Stop current task");
   m_stopAction->setEnabled(false);
@@ -484,7 +596,7 @@ void MainWindow::onExtractSelected() {
   domain::ExtractionTask task;
   task.image = m_imageInfo;
   task.partition = m_partitions[static_cast<size_t>(m_selectedPartitionIndex)];
-  task.settings.applyHostTimestamps = true;
+  task.settings = m_appSettings;
 
   const auto selectedRows = m_fileTable->selectionModel()->selectedRows();
   for (const auto &proxyIdx : selectedRows) {
@@ -493,6 +605,15 @@ void MainWindow::onExtractSelected() {
   }
   if (task.entries.empty() && !m_files.empty()) task.entries.push_back(m_files.front());
   task.destinationRoot = root;
+
+  startExtractionTask(std::move(task));
+}
+
+void MainWindow::startExtractionTask(domain::ExtractionTask task) {
+  if (task.entries.empty()) {
+    QMessageBox::information(this, "Extraction", "No entries selected for extraction.");
+    return;
+  }
 
   m_extractStatusModel->removeRows(0, m_extractStatusModel->rowCount());
   m_extractProgressBar->setValue(0);
@@ -588,6 +709,198 @@ void MainWindow::onExtractSelected() {
   thread->start();
 }
 
+
+
+void MainWindow::loadDirectoryAtPath(const QString &path) {
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    return;
+  }
+
+  m_currentLogicalPath = path;
+  auto *thread = new QThread(this);
+  auto *worker = new workers::DirectoryListWorker(m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)], m_currentLogicalPath);
+  worker->moveToThread(thread);
+
+  connect(thread, &QThread::started, worker, &workers::DirectoryListWorker::process);
+  connect(worker, &workers::DirectoryListWorker::completed, this,
+          [this, thread](std::vector<domain::FileEntry> entries, const QString &error) {
+            setBusy(false);
+            if (!error.isEmpty()) m_logManager.error(error);
+            m_files = std::move(entries);
+            m_fileModel->setEntries(m_files);
+            m_centerTabs->setCurrentIndex(0);
+            thread->quit();
+          });
+  connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+  connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+
+  setBusy(true, QString("Enumerating %1 ...").arg(m_currentLogicalPath));
+  thread->start();
+}
+
+std::optional<domain::FileEntry> MainWindow::resolveFileEntryByPath(const QString &fullPath) const {
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    return std::nullopt;
+  }
+
+  forensics::FileSystemHandle fs;
+  QString fsError;
+  if (!fs.open(*m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)], fsError)) {
+    return std::nullopt;
+  }
+
+  forensics::FileSystemBrowser browser;
+  const int slash = fullPath.lastIndexOf('/');
+  const auto parent = slash > 0 ? fullPath.left(slash) : QString("/");
+  const auto name = fullPath.mid(slash + 1);
+  QString listError;
+  const auto entries = browser.listDirectory(fs, parent, listError);
+  if (!listError.isEmpty()) return std::nullopt;
+  for (const auto &entry : entries) {
+    if (entry.name.compare(name, Qt::CaseInsensitive) == 0) return entry;
+  }
+  return std::nullopt;
+}
+
+bool MainWindow::isLikelyWindowsPartition() const {
+  if (m_selectedPartitionIndex < 0 || m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) return false;
+  const auto &partition = m_partitions[static_cast<size_t>(m_selectedPartitionIndex)];
+  const auto fsType = partition.fileSystemType.toUpper();
+  const bool windowsFsType = fsType.contains("NTFS") || fsType.contains("FAT") || fsType.contains("EXFAT");
+  if (!m_tskImage || !m_tskImage->isOpen()) return windowsFsType;
+
+  forensics::FileSystemHandle fs;
+  QString fsError;
+  if (!fs.open(*m_tskImage, partition, fsError)) return windowsFsType;
+
+  forensics::FileSystemBrowser browser;
+  QString listError;
+  const auto windowsEntries = browser.listDirectory(fs, "/Windows", listError);
+  if (!listError.isEmpty()) return windowsFsType;
+  return windowsFsType || !windowsEntries.empty();
+}
+
+void MainWindow::onScanArtifacts() {
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    QMessageBox::information(this, "Artifacts", "Select a partition first.");
+    return;
+  }
+
+  if (!isLikelyWindowsPartition()) {
+    QMessageBox::information(this, "Artifacts",
+                             "Selected partition does not appear to be a Windows filesystem. "
+                             "Skipping resolver scan to avoid noisy false misses.");
+    m_artifacts.clear();
+    m_artifactModel->setArtifacts({});
+    return;
+  }
+
+  auto *thread = new QThread(this);
+  auto *worker = new workers::ArtifactScanWorker(m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)]);
+  worker->moveToThread(thread);
+  QPointer<workers::ArtifactScanWorker> workerGuard(worker);
+  m_cancelCurrentTask = [workerGuard]() {
+    if (workerGuard) QMetaObject::invokeMethod(workerGuard, "requestCancel", Qt::QueuedConnection);
+  };
+  connect(thread, &QThread::started, worker, &workers::ArtifactScanWorker::process);
+  connect(worker, &workers::ArtifactScanWorker::completed, this,
+          [this, thread](std::vector<domain::ArtifactRecord> artifacts, QStringList warnings, const QString &error) {
+            setBusy(false);
+            if (!error.isEmpty() && !error.contains("cancel", Qt::CaseInsensitive)) {
+              QMessageBox::warning(this, "Artifact scan", error);
+            }
+            for (const auto &w : warnings) {
+              m_logManager.info(QString("Artifact scan warning: %1").arg(w));
+            }
+            m_artifacts = std::move(artifacts);
+            m_artifactModel->setArtifacts(m_artifacts);
+            m_centerTabs->setCurrentIndex(1);
+            thread->quit();
+          });
+  connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+  connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+  setBusy(true, "Scanning known artifact locations...");
+  thread->start();
+}
+
+void MainWindow::onArtifactSelectionChanged() {
+  const auto rows = m_artifactTable->selectionModel()->selectedRows();
+  if (rows.isEmpty()) {
+    m_metadataPanel->clear();
+    return;
+  }
+  const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
+  const auto *artifact = m_artifactModel->artifactAt(source.row());
+  if (!artifact) return;
+  m_metadataPanel->setPlainText(QString("Artifact: %1\nCategory: %2\nProfile: %3\nPath: %4\nStatus: %5\nNotes: %6")
+                                .arg(artifact->artifactName, artifact->category, artifact->profile,
+                                     artifact->sourceLogicalPath, artifact->status, artifact->notes));
+}
+
+void MainWindow::onArtifactJumpToFileSystem() {
+  const auto rows = m_artifactTable->selectionModel()->selectedRows();
+  if (rows.isEmpty()) return;
+  const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
+  const auto *artifact = m_artifactModel->artifactAt(source.row());
+  if (!artifact) return;
+  if (artifact->directoryTarget) {
+    loadDirectoryAtPath(artifact->sourceLogicalPath);
+    return;
+  }
+  const int slash = artifact->sourceLogicalPath.lastIndexOf('/');
+  const auto parent = slash > 0 ? artifact->sourceLogicalPath.left(slash) : QString("/");
+  loadDirectoryAtPath(parent);
+}
+
+void MainWindow::onArtifactCopyPath() {
+  const auto rows = m_artifactTable->selectionModel()->selectedRows();
+  if (rows.isEmpty()) return;
+  const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
+  const auto *artifact = m_artifactModel->artifactAt(source.row());
+  if (!artifact) return;
+  QApplication::clipboard()->setText(artifact->sourceLogicalPath);
+}
+
+void MainWindow::onArtifactExtractSelected() {
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    return;
+  }
+
+  const auto rows = m_artifactTable->selectionModel()->selectedRows();
+  if (rows.isEmpty()) {
+    QMessageBox::information(this, "Artifacts", "Select one or more artifact rows to extract.");
+    return;
+  }
+
+  domain::ExtractionTask task;
+  task.image = m_imageInfo;
+  task.partition = m_partitions[static_cast<size_t>(m_selectedPartitionIndex)];
+  task.settings = m_appSettings;
+
+  for (const auto &row : rows) {
+    const QModelIndex sourceRow = m_artifactProxy->mapToSource(row);
+    const auto *artifact = m_artifactModel->artifactAt(sourceRow.row());
+    if (!artifact || artifact->status != "Present") continue;
+    if (const auto entry = resolveFileEntryByPath(artifact->sourceLogicalPath)) {
+      task.entries.push_back(*entry);
+    }
+  }
+
+  if (task.entries.empty()) {
+    QMessageBox::information(this, "Artifacts", "No present artifact files were selected.");
+    return;
+  }
+
+  const auto root = QFileDialog::getExistingDirectory(this, "Select extraction destination");
+  if (root.isEmpty()) return;
+  task.destinationRoot = root;
+
+  startExtractionTask(std::move(task));
+}
 void MainWindow::onExportCatalog() {
   if (m_catalog.empty()) {
     QMessageBox::information(this, "No data", "No extraction records are available to export yet.");

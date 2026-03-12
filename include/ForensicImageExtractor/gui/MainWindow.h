@@ -4,6 +4,7 @@
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/domain/Models.h"
 #include "ForensicImageExtractor/gui/FileEntryTableModel.h"
+#include "ForensicImageExtractor/gui/ArtifactTableModel.h"
 #include "ForensicImageExtractor/utils/LogManager.h"
 
 #include <QMainWindow>
@@ -20,6 +21,7 @@ class QPlainTextEdit;
 class QProgressBar;
 class QTableView;
 class QStandardItemModel;
+class QTabWidget;
 class QTextEdit;
 class QTreeWidget;
 class QTreeWidgetItem;
@@ -37,6 +39,11 @@ private slots:
   void onFileSelected();
   void onExtractSelected();
   void onExportCatalog();
+  void onScanArtifacts();
+  void onArtifactSelectionChanged();
+  void onArtifactExtractSelected();
+  void onArtifactJumpToFileSystem();
+  void onArtifactCopyPath();
 
 private:
   void setupUi();
@@ -47,6 +54,10 @@ private:
   void setBusy(bool busy, const QString &message = {});
   void refreshEvidenceSummary();
   QByteArray readPreviewBytes(const domain::FileEntry &entry, QString &error) const;
+  void loadDirectoryAtPath(const QString &path);
+  void startExtractionTask(domain::ExtractionTask task);
+  std::optional<domain::FileEntry> resolveFileEntryByPath(const QString &fullPath) const;
+  bool isLikelyWindowsPartition() const;
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -54,12 +65,15 @@ private:
   std::vector<domain::PartitionInfo> m_partitions;
   std::vector<domain::FileEntry> m_files;
   std::vector<domain::CatalogRecord> m_catalog;
+  std::vector<domain::ArtifactRecord> m_artifacts;
+  domain::AppSettings m_appSettings;
   int m_selectedPartitionIndex{-1};
   QString m_currentLogicalPath{"/"};
 
   utils::LogManager m_logManager;
 
   QTreeWidget *m_partitionTree{nullptr};
+  QTabWidget *m_centerTabs{nullptr};
   QTableView *m_fileTable{nullptr};
   FileEntryTableModel *m_fileModel{nullptr};
   FileEntryFilterProxyModel *m_fileProxy{nullptr};
@@ -77,13 +91,20 @@ private:
 
   QLineEdit *m_nameFilterEdit{nullptr};
   QCheckBox *m_deletedOnlyCheck{nullptr};
+  QCheckBox *m_allocatedOnlyCheck{nullptr};
   QCheckBox *m_adsOnlyCheck{nullptr};
   QComboBox *m_typeFilterCombo{nullptr};
+  QLineEdit *m_extensionFilterEdit{nullptr};
+  QLineEdit *m_pathFilterEdit{nullptr};
 
   QDockWidget *m_extractionDock{nullptr};
   QProgressBar *m_extractProgressBar{nullptr};
   QLabel *m_extractSummaryLabel{nullptr};
   QTableView *m_extractStatusView{nullptr};
+
+  QTableView *m_artifactTable{nullptr};
+  ArtifactTableModel *m_artifactModel{nullptr};
+  ArtifactSortProxyModel *m_artifactProxy{nullptr};
   QStandardItemModel *m_extractStatusModel{nullptr};
 };
 

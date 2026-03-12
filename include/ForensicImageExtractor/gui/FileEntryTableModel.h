@@ -12,9 +12,11 @@ class FileEntryTableModel : public QAbstractTableModel {
 public:
   enum Column {
     Name = 0,
+    LogicalPath,
     Type,
     Size,
     Deleted,
+    Allocated,
     FileId,
     Created,
     Modified,
@@ -52,19 +54,26 @@ public:
 
   void setNameContains(QString v);
   void setDeletedOnly(bool v);
+  void setAllocatedOnly(bool v);
   void setFilesOnly(bool v);
   void setDirectoriesOnly(bool v);
   void setAdsOnly(bool v);
+  void setExtensionFilter(QString extension);
+  void setPathContains(QString pathContains);
 
 protected:
   bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
+  bool lessThan(const QModelIndex &sourceLeft, const QModelIndex &sourceRight) const override;
 
 private:
   QString m_nameContains;
   bool m_deletedOnly{false};
+  bool m_allocatedOnly{false};
   bool m_filesOnly{false};
   bool m_directoriesOnly{false};
   bool m_adsOnly{false};
+  QString m_extensionFilter;
+  QString m_pathContains;
 };
 
 } // namespace fie::gui
