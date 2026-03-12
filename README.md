@@ -93,7 +93,7 @@ The repository now includes a minimal production-usable headless executable that
 
 ## New GUI analysis workflows
 - **Artifacts tab**: scan known Windows artifact paths for the selected partition, review status/size/timestamp context, extract selected artifact files, copy logical paths, and jump directly into the file browser context. Non-Windows suppression uses a lightweight heuristic (filesystem type + `/Windows` probe) to avoid noisy scans.
-- **Enhanced file triage**: tuned for faster analyst scanning with compact triage filters, lightweight column profiles (triage/NTFS detail/extraction-status), denser sectioned metadata, bounded read-only hexdump preview with signature/truncation context, restrained row-state cues (deleted/unallocated/ADS/status), richer artifact↔file correlation cues, and right-click actions for extract/path+inode copy/parent navigation/metadata export/artifact cross-navigation.
+- **Enhanced file triage**: tuned for faster analyst scanning with compact triage filters, lightweight column profiles (triage/NTFS detail/extraction-status), denser sectioned metadata, bounded read-only hexdump preview with signature/truncation context, restrained row-state cues (deleted/unallocated/ADS/status), richer artifact↔file correlation cues (explicit exact/parent/child reason labels), deterministic best-match artifact selection, clearer artifact-jump status messaging when filters hide a target row, and right-click actions for extract/path+inode copy/parent navigation/metadata export/artifact cross-navigation.
 - Scope remains read-only; this is a resolver-based Artifact Explorer MVP and deep parser views for SQLite/registry artifacts are intentionally deferred to future passes.
 
 ## Build requirements
