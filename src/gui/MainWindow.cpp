@@ -76,6 +76,34 @@ QString bytesToHex(const QByteArray &bytes) {
   return out.trimmed();
 }
 
+QString backendLabel(fie::domain::ForensicBackend backend) {
+  switch (backend) {
+  case fie::domain::ForensicBackend::ReaderBridge:
+    return "ReaderBridge";
+  case fie::domain::ForensicBackend::PathFallback:
+    return "PathFallback";
+  case fie::domain::ForensicBackend::Unknown:
+    return "Unknown";
+  case fie::domain::ForensicBackend::NotApplicable:
+  default:
+    return "N/A";
+  }
+}
+
+void logOperationResult(fie::utils::LogManager &log, const fie::domain::ForensicOperationResult &result,
+                        const QString &context) {
+  const QString base = QString("%1 [%2] reason=%3 msg=%4")
+                           .arg(context,
+                                backendLabel(result.backend),
+                                result.diagnostic.reason,
+                                result.diagnostic.userMessage);
+  if (result.state == fie::domain::ForensicOperationState::Failure) {
+    log.error(base);
+  } else {
+    log.info(base + (result.diagnostic.detail.isEmpty() ? "" : QString(" detail=%1").arg(result.diagnostic.detail)));
+  }
+}
+
 QString bytesToSafeText(const QByteArray &bytes) {
   QString out;
   out.reserve(bytes.size());
@@ -89,6 +117,7 @@ QString bytesToSafeText(const QByteArray &bytes) {
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
   qRegisterMetaType<fie::forensics::ProgressInfo>("fie::forensics::ProgressInfo");
+  qRegisterMetaType<fie::domain::ForensicOperationResult>("fie::domain::ForensicOperationResult");
   setupUi();
   setupMenu();
   connect(&m_logManager, &utils::LogManager::logAdded, this, &MainWindow::appendLog);
@@ -394,14 +423,15 @@ void MainWindow::onOpenImage() {
   };
 
   connect(thread, &QThread::started, worker, &workers::ImageOpenWorker::process);
-  connect(worker, &workers::ImageOpenWorker::completed, this, [this, thread](bool ok, domain::ImageInfo info, const QString &error) {
+  connect(worker, &workers::ImageOpenWorker::completed, this,
+          [this, thread](domain::ImageInfo info, const domain::ForensicOperationResult &result) {
     setBusy(false);
-    if (!ok) {
-      QMessageBox::critical(this, "Open image failed", error);
+    logOperationResult(m_logManager, result, "Image open");
+    if (!result.succeeded()) {
+      QMessageBox::critical(this, "Open image failed", result.diagnostic.userMessage);
     } else {
       m_imageInfo = info;
       refreshEvidenceSummary();
-      if (m_reader && !m_reader->lastWarning().isEmpty()) m_logManager.info(m_reader->lastWarning());
 
       auto *partThread = new QThread(this);
       auto *partWorker = new workers::PartitionScanWorker(m_tskImage);
@@ -413,11 +443,14 @@ void MainWindow::onOpenImage() {
 
       connect(partThread, &QThread::started, partWorker, &workers::PartitionScanWorker::process);
       connect(partWorker, &workers::PartitionScanWorker::completed, this,
-              [this, partThread](std::vector<domain::PartitionInfo> parts, const QString &scanError, const QString &scanWarning) {
+              [this, partThread](std::vector<domain::PartitionInfo> parts,
+                                 const domain::ForensicOperationResult &scanResult) {
                 setBusy(false);
-                if (!scanWarning.isEmpty()) m_logManager.info(scanWarning);
-                if (!scanError.isEmpty()) m_logManager.error(scanError);
-                m_partitions = std::move(parts);
+                logOperationResult(m_logManager, scanResult, "Partition enumeration");
+                if (!scanResult.succeeded() && !scanResult.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
+                  QMessageBox::warning(this, "Partition scan", scanResult.diagnostic.userMessage);
+                }
+                m_partitions = scanResult.succeeded() ? std::move(parts) : std::vector<domain::PartitionInfo>{};
                 populatePartitions();
                 refreshEvidenceSummary();
                 partThread->quit();
@@ -475,10 +508,14 @@ void MainWindow::onPartitionSelected() {
 
   connect(thread, &QThread::started, worker, &workers::DirectoryListWorker::process);
   connect(worker, &workers::DirectoryListWorker::completed, this,
-          [this, thread, selectedGuard](std::vector<domain::FileEntry> entries, const QString &error) {
+          [this, thread, selectedGuard](std::vector<domain::FileEntry> entries,
+                                        const domain::ForensicOperationResult &result) {
             setBusy(false);
-            if (!error.isEmpty()) m_logManager.error(error);
-            m_files = std::move(entries);
+            logOperationResult(m_logManager, result, "Directory listing");
+            if (!result.succeeded() && !result.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
+              QMessageBox::warning(this, "Directory listing", result.diagnostic.userMessage);
+            }
+            m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
             populateFiles(selectedGuard.data());
             thread->quit();
           });
@@ -658,9 +695,21 @@ void MainWindow::startExtractionTask(domain::ExtractionTask task) {
   });
 
   connect(worker, &workers::ExtractionWorker::completed, this,
-          [this, thread, task, statusRows](std::vector<domain::ExtractionResult> results, const QString &error) {
+          [this, thread, task, statusRows](std::vector<domain::ExtractionResult> results,
+                                           const domain::ForensicOperationResult &result) {
             setBusy(false);
-            if (!error.isEmpty()) m_logManager.error(error);
+            logOperationResult(m_logManager, result, "Extraction");
+
+            if (result.diagnostic.reason == "cancelled") {
+              for (auto it = statusRows->cbegin(); it != statusRows->cend(); ++it) {
+                const int row = it.value();
+                m_extractStatusModel->setItem(row, 1, new QStandardItem("cancelled"));
+                m_extractStatusModel->setItem(row, 3, new QStandardItem("Task cancelled; extracted payload suppressed"));
+              }
+              m_extractSummaryLabel->setText("Summary: cancelled (partial on-disk output may exist)");
+              thread->quit();
+              return;
+            }
 
             int success = 0;
             int warning = 0;
@@ -724,10 +773,14 @@ void MainWindow::loadDirectoryAtPath(const QString &path) {
 
   connect(thread, &QThread::started, worker, &workers::DirectoryListWorker::process);
   connect(worker, &workers::DirectoryListWorker::completed, this,
-          [this, thread](std::vector<domain::FileEntry> entries, const QString &error) {
+          [this, thread](std::vector<domain::FileEntry> entries,
+                         const domain::ForensicOperationResult &result) {
             setBusy(false);
-            if (!error.isEmpty()) m_logManager.error(error);
-            m_files = std::move(entries);
+            logOperationResult(m_logManager, result, "Directory listing");
+            if (!result.succeeded() && !result.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
+              QMessageBox::warning(this, "Directory listing", result.diagnostic.userMessage);
+            }
+            m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
             m_fileModel->setEntries(m_files);
             m_centerTabs->setCurrentIndex(0);
             thread->quit();
@@ -807,13 +860,15 @@ void MainWindow::onScanArtifacts() {
   };
   connect(thread, &QThread::started, worker, &workers::ArtifactScanWorker::process);
   connect(worker, &workers::ArtifactScanWorker::completed, this,
-          [this, thread](std::vector<domain::ArtifactRecord> artifacts, QStringList warnings, const QString &error) {
+          [this, thread](std::vector<domain::ArtifactRecord> artifacts,
+                         const domain::ForensicOperationResult &result) {
             setBusy(false);
-            if (!error.isEmpty() && !error.contains("cancel", Qt::CaseInsensitive)) {
-              QMessageBox::warning(this, "Artifact scan", error);
+            logOperationResult(m_logManager, result, "Artifact scan");
+            if (!result.succeeded() && !result.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
+              QMessageBox::warning(this, "Artifact scan", result.diagnostic.userMessage);
             }
-            for (const auto &w : warnings) {
-              m_logManager.info(QString("Artifact scan warning: %1").arg(w));
+            if (result.hasWarning() && !result.diagnostic.detail.isEmpty()) {
+              m_logManager.info(QString("Artifact scan warning: %1").arg(result.diagnostic.detail));
             }
             m_artifacts = std::move(artifacts);
             m_artifactModel->setArtifacts(m_artifacts);

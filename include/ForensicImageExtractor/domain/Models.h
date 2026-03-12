@@ -43,6 +43,34 @@ struct ImageInfo {
   quint64 sizeBytes{0};
 };
 
+enum class ForensicOperationState {
+  Success,
+  SuccessWithWarning,
+  Failure,
+};
+
+enum class ForensicBackend {
+  ReaderBridge,
+  PathFallback,
+  Unknown,
+  NotApplicable,
+};
+
+struct ForensicDiagnostic {
+  QString reason;
+  QString userMessage;
+  QString detail;
+};
+
+struct ForensicOperationResult {
+  ForensicOperationState state{ForensicOperationState::Failure};
+  ForensicBackend backend{ForensicBackend::NotApplicable};
+  ForensicDiagnostic diagnostic;
+
+  bool succeeded() const { return state != ForensicOperationState::Failure; }
+  bool hasWarning() const { return state == ForensicOperationState::SuccessWithWarning; }
+};
+
 struct PartitionInfo {
   int index{-1};
   QString identifier;
@@ -136,6 +164,7 @@ struct CatalogRecord {
 } // namespace fie::domain
 
 Q_DECLARE_METATYPE(fie::domain::ImageInfo)
+Q_DECLARE_METATYPE(fie::domain::ForensicOperationResult)
 Q_DECLARE_METATYPE(fie::domain::PartitionInfo)
 Q_DECLARE_METATYPE(fie::domain::FileEntry)
 Q_DECLARE_METATYPE(fie::domain::ExtractionResult)

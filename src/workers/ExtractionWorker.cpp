@@ -2,6 +2,8 @@
 
 #include "ForensicImageExtractor/forensics/ExtractionService.h"
 
+#include "WorkerOutcomePolicy.h"
+
 namespace fie::workers {
 
 ExtractionWorker::ExtractionWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
@@ -12,15 +14,22 @@ ExtractionWorker::ExtractionWorker(std::shared_ptr<core::TskImageHandleAdapter> 
 void ExtractionWorker::requestCancel() { m_cancel->cancel(); }
 
 void ExtractionWorker::process() {
-  if (!m_tskImage || !m_tskImage->isOpen()) {
-    emit completed({}, "TSK image not open");
+  if (m_cancel->isCancellationRequested()) {
+    emit completed({}, domain::op::cancelled());
     return;
   }
+
+  if (!m_tskImage || !m_tskImage->isOpen()) {
+    emit completed({}, domain::op::failure("image_not_open", "TSK image not open"));
+    return;
+  }
+
+  const auto backend = domain::op::backendFromOpenAdapter(*m_tskImage);
 
   forensics::FileSystemHandle fs;
   QString error;
   if (!fs.open(*m_tskImage, m_task.partition, error)) {
-    emit completed({}, error);
+    emit completed({}, domain::op::failure("filesystem_open_failed", error, backend));
     return;
   }
 
@@ -29,8 +38,10 @@ void ExtractionWorker::process() {
   context.onProgress = [this](const forensics::ProgressInfo &info) { emit progress(info); };
 
   forensics::ExtractionService service;
-  const auto results = service.extract(fs, m_task, error, &context);
-  emit completed(results, error);
+  auto results = service.extract(fs, m_task, error, &context);
+  const auto resolved =
+      detail::resolveExtractionOutcome(std::move(results), error, m_cancel->isCancellationRequested(), backend);
+  emit completed(resolved.first, resolved.second);
 }
 
 } // namespace fie::workers

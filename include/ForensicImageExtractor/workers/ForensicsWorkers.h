@@ -20,7 +20,7 @@ public slots:
   void requestCancel();
 
 signals:
-  void completed(bool ok, fie::domain::ImageInfo info, QString error);
+  void completed(fie::domain::ImageInfo info, fie::domain::ForensicOperationResult result);
 
 private:
   std::shared_ptr<core::IImageReader> m_reader;
@@ -38,7 +38,7 @@ public slots:
   void requestCancel();
 
 signals:
-  void completed(std::vector<fie::domain::PartitionInfo> partitions, QString error, QString warning);
+  void completed(std::vector<fie::domain::PartitionInfo> partitions, fie::domain::ForensicOperationResult result);
 
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -55,8 +55,9 @@ public slots:
   void process();
   void requestCancel();
 
+
 signals:
-  void completed(std::vector<fie::domain::FileEntry> entries, QString error);
+  void completed(std::vector<fie::domain::FileEntry> entries, fie::domain::ForensicOperationResult result);
 
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -76,8 +77,9 @@ public slots:
   void process();
   void requestCancel();
 
+
 signals:
-  void completed(std::vector<fie::domain::ArtifactRecord> artifacts, QStringList warnings, QString error);
+  void completed(std::vector<fie::domain::ArtifactRecord> artifacts, fie::domain::ForensicOperationResult result);
 
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
