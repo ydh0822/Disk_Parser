@@ -78,7 +78,7 @@
 ## File browser upgrade (Phase 2 incremental)
 - `FileEntryTableModel` exposes additional forensic triage columns (logical path + allocated state) while preserving existing timestamp/ADS metadata surfaces.
 - `FileEntryFilterProxyModel` now supports allocated-only, extension, path-content, and row-status filters in addition to existing deleted/type/ADS/name filters.
-- File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context; correlation ranking prefers exact matches over ancestor/descendant path relationships.
+- File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context; correlation is intentionally path-only (exact/ancestor/descendant), exposes reason labels in UI metadata/status, and keeps deterministic ranking (exact > ancestor > descendant) for analyst auditability.
 - Metadata shown in the browser remains sourced from existing `forensics::FileSystemBrowser` (TSK directory/meta fields + NTFS-specific enrichment where available).
 
 ## GUI workspace refinements

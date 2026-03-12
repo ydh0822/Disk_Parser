@@ -1,5 +1,6 @@
 #include "ForensicImageExtractor/gui/MainWindow.h"
 #include "ForensicImageExtractor/gui/CorrelationUtils.h"
+#include "ForensicImageExtractor/gui/NavigationUtils.h"
 
 #include "ForensicImageExtractor/core/ImageReaderFactory.h"
 #include "ForensicImageExtractor/utils/MetadataFactory.h"
@@ -393,23 +394,9 @@ void MainWindow::setupUi() {
       const auto parent = entry->fullPath.left(entry->fullPath.lastIndexOf('/'));
       loadDirectoryAtPath(parent.isEmpty() ? "/" : parent);
     } else if (chosen == relatedArtifact) {
-      int bestRow = -1;
-      int bestRank = 100;
-      for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
-        const auto *artifact = m_artifactModel->artifactAt(r);
-        if (!artifact) continue;
-        if (!pathsCorrelate(entry->fullPath, artifact->sourceLogicalPath)) continue;
-        const int rank = pathCorrelationRank(entry->fullPath, artifact->sourceLogicalPath);
-        if (rank < bestRank) {
-          bestRank = rank;
-          bestRow = r;
-          if (bestRank == 0) break;
-        }
-      }
-      if (bestRow >= 0) {
-        m_centerTabs->setCurrentIndex(1);
-        const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(bestRow, 0));
-        if (proxyRow.isValid()) m_artifactTable->selectRow(proxyRow.row());
+      QString selectionSummary;
+      if (selectBestArtifactForFilePath(entry->fullPath, &selectionSummary)) {
+        statusBar()->showMessage(selectionSummary, 6000);
       } else {
         statusBar()->showMessage("No correlated artifact rows for selected file", 5000);
       }
@@ -750,11 +737,18 @@ void MainWindow::onPartitionSelected() {
                 m_logManager.info(QString("Directory listing warning detail: %1").arg(result.diagnostic.detail));
               }
             }
-            m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
+            const bool listingSucceeded = result.succeeded();
+            m_files = listingSucceeded ? std::move(entries) : std::vector<domain::FileEntry>{};
             populateFiles(selectedGuard.data());
-            if (!m_pendingFileSelectionPath.isEmpty()) {
+            const auto navDecision = pendingNavigationDecision(listingSucceeded, m_pendingFileSelectionPath, m_pendingNavigationContext);
+            if (navDecision.attemptFileSelection) {
               selectFileRowByPath(m_pendingFileSelectionPath);
+            } else if (navDecision.showCompletionMessage) {
+              statusBar()->showMessage(QString("Jump complete from %1").arg(m_pendingNavigationContext), 6000);
+            }
+            if (navDecision.clearPendingState) {
               m_pendingFileSelectionPath.clear();
+              m_pendingNavigationContext.clear();
             }
             thread->quit();
           });
@@ -843,15 +837,29 @@ void MainWindow::onFileSelected() {
                                 .arg(f->isDeleted ? "yes" : "no");
   const QString rowStatus = m_fileModel->data(m_fileModel->index(source.row(), FileEntryTableModel::Status), Qt::DisplayRole).toString();
   int relatedArtifacts = 0;
+  int bestCorrelationRank = 100;
+  QString bestCorrelationReason = "none";
   QStringList relatedNames;
   for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
     const auto *artifact = m_artifactModel->artifactAt(r);
     if (!artifact) continue;
-    if (!pathsCorrelate(f->fullPath, artifact->sourceLogicalPath)) continue;
+    const auto correlation = pathCorrelation(f->fullPath, artifact->sourceLogicalPath);
+    if (!correlation.correlated()) continue;
     ++relatedArtifacts;
-    if (relatedNames.size() < 3) relatedNames.push_back(artifact->artifactName);
+    if (correlation.rank < bestCorrelationRank) {
+      bestCorrelationRank = correlation.rank;
+      bestCorrelationReason = pathCorrelationTypeLabel(correlation.type);
+    }
+    if (relatedNames.size() < 3) {
+      relatedNames.push_back(QString("%1 [%2]").arg(artifact->artifactName, pathCorrelationTypeLabel(correlation.type)));
+    }
   }
-  const QString relatedSummary = relatedArtifacts == 0 ? "none" : QString("%1 (%2)").arg(relatedArtifacts).arg(relatedNames.join(", "));
+  const QString relatedSummary = relatedArtifacts == 0
+                                     ? "none"
+                                     : QString("%1 (best: %2; examples: %3)")
+                                           .arg(relatedArtifacts)
+                                           .arg(bestCorrelationReason)
+                                           .arg(relatedNames.join(", "));
   m_metadataPanel->setPlainText(
       QString("[Core]\n"
               "Path         : %1\n"
@@ -1088,13 +1096,42 @@ void MainWindow::loadDirectoryAtPath(const QString &path) {
                 m_logManager.info(QString("Directory listing warning detail: %1").arg(result.diagnostic.detail));
               }
             }
-            m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
+            const bool listingSucceeded = result.succeeded();
+            m_files = listingSucceeded ? std::move(entries) : std::vector<domain::FileEntry>{};
             m_fileModel->setEntries(m_files);
-            if (!m_pendingFileSelectionPath.isEmpty()) {
-              if (!selectFileRowByPath(m_pendingFileSelectionPath)) {
-                m_logManager.info(QString("Pending file selection not found in current view: %1").arg(m_pendingFileSelectionPath));
+            const auto navDecision = pendingNavigationDecision(listingSucceeded, m_pendingFileSelectionPath, m_pendingNavigationContext);
+            if (navDecision.attemptFileSelection) {
+              const QString pendingPath = m_pendingFileSelectionPath;
+              const bool selected = selectFileRowByPath(pendingPath);
+              const bool existsInSourceModel = sourceModelContainsPath(pendingPath);
+              switch (pendingSelectionOutcome(listingSucceeded, pendingPath, existsInSourceModel, selected)) {
+              case PendingSelectionOutcome::HiddenByFilters:
+                m_logManager.info(QString("Pending file selection hidden by active filters: %1").arg(pendingPath));
+                statusBar()->showMessage(
+                    QString("Located parent directory, but target file is hidden by active filters: %1").arg(pendingPath),
+                    8000);
+                break;
+              case PendingSelectionOutcome::NotFoundInLoadedDirectory:
+                m_logManager.info(QString("Pending file selection path not found in loaded directory: %1").arg(pendingPath));
+                statusBar()->showMessage(
+                    QString("Located parent directory, but target file was not found in loaded directory: %1").arg(pendingPath),
+                    8000);
+                break;
+              case PendingSelectionOutcome::SelectedVisible:
+                if (!m_pendingNavigationContext.isEmpty()) {
+                  statusBar()->showMessage(QString("Jump complete from %1").arg(m_pendingNavigationContext), 6000);
+                }
+                break;
+              case PendingSelectionOutcome::None:
+              default:
+                break;
               }
+            } else if (navDecision.showCompletionMessage) {
+              statusBar()->showMessage(QString("Jump complete from %1").arg(m_pendingNavigationContext), 6000);
+            }
+            if (navDecision.clearPendingState) {
               m_pendingFileSelectionPath.clear();
+              m_pendingNavigationContext.clear();
             }
             m_centerTabs->setCurrentIndex(0);
             thread->quit();
@@ -1121,6 +1158,49 @@ bool MainWindow::selectFileRowByPath(const QString &fullPath) {
     return true;
   }
   return false;
+}
+
+bool MainWindow::sourceModelContainsPath(const QString &fullPath) const {
+  if (fullPath.isEmpty()) return false;
+  for (int row = 0; row < m_fileModel->rowCount(); ++row) {
+    const auto *entry = m_fileModel->entryAt(row);
+    if (!entry) continue;
+    if (entry->fullPath.compare(fullPath, Qt::CaseInsensitive) == 0) return true;
+  }
+  return false;
+}
+
+bool MainWindow::selectBestArtifactForFilePath(const QString &filePath, QString *selectionSummary) {
+  int bestRow = -1;
+  int bestRank = 100;
+  PathCorrelationType bestType = PathCorrelationType::None;
+  for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
+    const auto *artifact = m_artifactModel->artifactAt(r);
+    if (!artifact) continue;
+    const auto correlation = pathCorrelation(filePath, artifact->sourceLogicalPath);
+    if (!correlation.correlated()) continue;
+    if (correlation.rank < bestRank) {
+      bestRank = correlation.rank;
+      bestRow = r;
+      bestType = correlation.type;
+      if (bestRank == 0) break;
+    }
+  }
+
+  if (bestRow < 0) return false;
+  m_centerTabs->setCurrentIndex(1);
+  const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(bestRow, 0));
+  if (!proxyRow.isValid()) return false;
+  m_artifactTable->selectRow(proxyRow.row());
+  m_artifactTable->scrollTo(proxyRow, QAbstractItemView::PositionAtCenter);
+  if (selectionSummary) {
+    const auto *best = m_artifactModel->artifactAt(bestRow);
+    if (best) {
+      *selectionSummary = QString("Related artifact selected (%1): %2")
+                              .arg(pathCorrelationTypeLabel(bestType), best->sourceLogicalPath);
+    }
+  }
+  return true;
 }
 
 std::optional<domain::FileEntry> MainWindow::resolveFileEntryByPath(const QString &fullPath) const {
@@ -1222,9 +1302,32 @@ void MainWindow::onArtifactSelectionChanged() {
   const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
   const auto *artifact = m_artifactModel->artifactAt(source.row());
   if (!artifact) return;
-  m_metadataPanel->setPlainText(QString("Artifact: %1\nCategory: %2\nProfile: %3\nPath: %4\nStatus: %5\nNotes: %6")
+
+  QString selectedFileContext = "none";
+  const auto fileRows = m_fileTable->selectionModel()->selectedRows();
+  if (!fileRows.isEmpty()) {
+    const QModelIndex fileSource = m_fileProxy->mapToSource(fileRows.first());
+    const auto *entry = m_fileModel->entryAt(fileSource.row());
+    if (entry) {
+      const auto correlation = pathCorrelation(entry->fullPath, artifact->sourceLogicalPath);
+      selectedFileContext = correlation.correlated()
+                                ? QString("%1 (%2)").arg(entry->fullPath, pathCorrelationTypeLabel(correlation.type))
+                                : QString("%1 (no direct path correlation)").arg(entry->fullPath);
+    }
+  }
+
+  m_metadataPanel->setPlainText(QString("Artifact: %1\n"
+                                        "Category: %2\n"
+                                        "Profile: %3\n"
+                                        "Path: %4\n"
+                                        "Status: %5\n"
+                                        "Type: %6\n"
+                                        "Selected file context: %7\n"
+                                        "Notes: %8")
                                 .arg(artifact->artifactName, artifact->category, artifact->profile,
-                                     artifact->sourceLogicalPath, artifact->status, artifact->notes));
+                                     artifact->sourceLogicalPath, artifact->status,
+                                     artifact->directoryTarget ? "directory target" : "file target",
+                                     selectedFileContext, artifact->notes));
 }
 
 void MainWindow::onArtifactJumpToFileSystem() {
@@ -1233,6 +1336,8 @@ void MainWindow::onArtifactJumpToFileSystem() {
   const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
   const auto *artifact = m_artifactModel->artifactAt(source.row());
   if (!artifact) return;
+
+  m_pendingNavigationContext = QString("artifact '%1' (%2)").arg(artifact->artifactName, artifact->sourceLogicalPath);
   if (artifact->directoryTarget) {
     m_pendingFileSelectionPath.clear();
     loadDirectoryAtPath(artifact->sourceLogicalPath);

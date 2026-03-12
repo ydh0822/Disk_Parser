@@ -60,10 +60,12 @@ private:
   std::optional<domain::FileEntry> resolveFileEntryByPath(const QString &fullPath) const;
   bool isLikelyWindowsPartition() const;
   bool selectFileRowByPath(const QString &fullPath);
+  bool sourceModelContainsPath(const QString &fullPath) const;
   bool isPrimarySupportedFileSystem(const QString &fsType) const;
   bool isKnownUnsupportedOrUnconfirmedFileSystem(const QString &fsType) const;
   QString supportScopeSummary() const;
   void applyColumnProfile(int profileIndex);
+  bool selectBestArtifactForFilePath(const QString &filePath, QString *selectionSummary = nullptr);
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -119,6 +121,7 @@ private:
 
   QSet<QString> m_warnedSupportScopePartitions;
   QString m_pendingFileSelectionPath;
+  QString m_pendingNavigationContext;
 };
 
 } // namespace fie::gui

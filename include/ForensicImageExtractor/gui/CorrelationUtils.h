@@ -4,20 +4,53 @@
 
 namespace fie::gui {
 
+enum class PathCorrelationType {
+  None,
+  Exact,
+  ArtifactAncestor,
+  ArtifactDescendant,
+};
+
+struct PathCorrelation {
+  PathCorrelationType type{PathCorrelationType::None};
+  int rank{100};
+  bool correlated() const { return type != PathCorrelationType::None; }
+};
+
+inline PathCorrelation pathCorrelation(const QString &entryPath, const QString &artifactPath) {
+  if (entryPath.isEmpty() || artifactPath.isEmpty()) return {};
+  if (artifactPath.compare(entryPath, Qt::CaseInsensitive) == 0) {
+    return {PathCorrelationType::Exact, 0};
+  }
+  if (entryPath.startsWith(artifactPath + '/', Qt::CaseInsensitive)) {
+    return {PathCorrelationType::ArtifactAncestor, 1};
+  }
+  if (artifactPath.startsWith(entryPath + '/', Qt::CaseInsensitive)) {
+    return {PathCorrelationType::ArtifactDescendant, 2};
+  }
+  return {};
+}
+
+inline QString pathCorrelationTypeLabel(PathCorrelationType type) {
+  switch (type) {
+  case PathCorrelationType::Exact:
+    return "exact path";
+  case PathCorrelationType::ArtifactAncestor:
+    return "artifact path is parent context";
+  case PathCorrelationType::ArtifactDescendant:
+    return "artifact path is child context";
+  case PathCorrelationType::None:
+  default:
+    return "none";
+  }
+}
+
 inline bool pathsCorrelate(const QString &entryPath, const QString &artifactPath) {
-  if (entryPath.isEmpty() || artifactPath.isEmpty()) return false;
-  const bool exact = artifactPath.compare(entryPath, Qt::CaseInsensitive) == 0;
-  const bool artifactContainsEntry = entryPath.startsWith(artifactPath + '/', Qt::CaseInsensitive);
-  const bool entryContainsArtifact = artifactPath.startsWith(entryPath + '/', Qt::CaseInsensitive);
-  return exact || artifactContainsEntry || entryContainsArtifact;
+  return pathCorrelation(entryPath, artifactPath).correlated();
 }
 
 inline int pathCorrelationRank(const QString &entryPath, const QString &artifactPath) {
-  if (entryPath.isEmpty() || artifactPath.isEmpty()) return 100;
-  if (artifactPath.compare(entryPath, Qt::CaseInsensitive) == 0) return 0;
-  if (entryPath.startsWith(artifactPath + '/', Qt::CaseInsensitive)) return 1;
-  if (artifactPath.startsWith(entryPath + '/', Qt::CaseInsensitive)) return 2;
-  return 100;
+  return pathCorrelation(entryPath, artifactPath).rank;
 }
 
 } // namespace fie::gui

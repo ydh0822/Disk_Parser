@@ -129,6 +129,7 @@ if(FIE_ENABLE_TESTS)
     tests/test_FileEntryFiltering.cpp
     tests/test_FileEntryTableVisualCues.cpp
     tests/test_CorrelationUtils.cpp
+    tests/test_NavigationUtils.cpp
     src/gui/FileEntryTableModel.cpp
   )
   target_include_directories(fie_tests PRIVATE src)
