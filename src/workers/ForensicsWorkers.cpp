@@ -11,6 +11,13 @@
 
 namespace fie::workers {
 
+namespace {
+bool isKnownUnsupportedOrUnconfirmedFs(const QString &fsType) {
+  const QString upper = fsType.toUpper();
+  return upper.contains("REFS") || upper.contains("XFS");
+}
+}
+
 ImageOpenWorker::ImageOpenWorker(std::shared_ptr<core::IImageReader> reader, QString path)
     : m_reader(std::move(reader)), m_path(std::move(path)),
       m_cancel(std::make_shared<forensics::CancellationToken>()) {}
@@ -135,8 +142,15 @@ void DirectoryListWorker::process() {
 
   forensics::FileSystemBrowser browser;
   auto entries = browser.listDirectory(fs, m_path, error);
-  const auto resolved = detail::resolveDirectoryListOutcome(std::move(entries), error,
-                                                           m_cancel->isCancellationRequested(), backend);
+  auto resolved = detail::resolveDirectoryListOutcome(std::move(entries), error,
+                                                      m_cancel->isCancellationRequested(), backend);
+  if (resolved.second.succeeded() && isKnownUnsupportedOrUnconfirmedFs(m_partition.fileSystemType)) {
+    resolved.second = domain::op::successWithWarning(
+        backend,
+        "filesystem_support_unconfirmed",
+        QString("Filesystem %1 is not currently a supported target").arg(m_partition.fileSystemType),
+        "Browsing is provided via generic TSK directory traversal and may be incomplete on this filesystem.");
+  }
   emit completed(resolved.first, resolved.second);
 }
 

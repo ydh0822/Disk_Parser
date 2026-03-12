@@ -26,6 +26,12 @@
 - Result semantics are explicit: reader-backed success => `ReaderBridge` backend with no warning; reader-backed failure + path success => warning + `PathBased`; both fail => hard error with combined diagnostics.
 - A narrow `TskExternalImageApi` wrapper isolates version-sensitive TSK external-image open/error calls from the bridge logic.
 
+## Declared support scope boundaries
+- Image format messaging is intentionally scoped to RAW/DD and E01/EWF for this milestone.
+- Filesystem messaging is intentionally scoped to NTFS, FAT32, exFAT, EXT3, and EXT4 as primary support targets.
+- ReFS and XFS are explicitly treated as not-currently-supported targets in user messaging.
+- Directory browsing may still succeed through generic TSK flows on additional filesystems; when that occurs, worker/UI result messaging must remain explicit that support is unconfirmed.
+
 ## Timestamp handling
 - Generic filesystem timestamps come from `TSK_FS_META`.
 - NTFS SI/FN timestamps are retained as optional enrichment fields and only populated when NTFS capabilities are detected.
@@ -71,15 +77,15 @@
 
 ## File browser upgrade (Phase 2 incremental)
 - `FileEntryTableModel` exposes additional forensic triage columns (logical path + allocated state) while preserving existing timestamp/ADS metadata surfaces.
-- `FileEntryFilterProxyModel` now supports allocated-only, extension, and path-content filters in addition to existing deleted/type/ADS/name filters.
-- File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context.
+- `FileEntryFilterProxyModel` now supports allocated-only, extension, path-content, and row-status filters in addition to existing deleted/type/ADS/name filters.
+- File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context; correlation ranking prefers exact matches over ancestor/descendant path relationships.
 - Metadata shown in the browser remains sourced from existing `forensics::FileSystemBrowser` (TSK directory/meta fields + NTFS-specific enrichment where available).
 
 ## GUI workspace refinements
-- Evidence summary fields (image path/format/size, selected partition, filesystem type) are pinned at the top of the main workspace for analyst context retention.
-- File listing uses model/view (`FileEntryTableModel` + `FileEntryFilterProxyModel`) to keep filtering/search responsive for large directories.
-- Analyst-facing filters support name contains, deleted-only, files/directories type selection, and ADS-only scope.
-- Selection details include metadata summary plus safe bounded preview (hex + sanitized text) of first bytes via read-only TSK file reads.
+- Evidence summary fields (image path/format/size, selected partition, current path, filesystem type) are pinned at the top of the main workspace for analyst context retention.
+- File listing uses model/view (`FileEntryTableModel` + `FileEntryFilterProxyModel`) plus explicit column-visibility profiles (triage, NTFS detail, extraction/status) with deterministic order/sort defaults to keep filtering/search responsive for large directories while preserving dense metadata access.
+- Analyst-facing filters are grouped as a compact triage control surface (name/extension/type/path/status + deleted/allocated/ADS toggles) to keep density while reducing form clutter.
+- Selection details include a dense, sectioned metadata summary (allocated/deleted state, inode/file-id, generic MACB timestamps, NTFS-specific SI/FN/ADS when present, and current row status) plus safe bounded read-only preview (offset hexdump + sanitized text + lightweight signature hint + truncation context) of first bytes via TSK file reads.
 - Extraction UX uses a dock with live progress, per-file status table updates, and final summary counts (success/warning/error/skipped).
 
 

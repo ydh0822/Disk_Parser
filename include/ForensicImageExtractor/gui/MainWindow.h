@@ -8,6 +8,7 @@
 #include "ForensicImageExtractor/utils/LogManager.h"
 
 #include <QMainWindow>
+#include <QSet>
 #include <functional>
 #include <memory>
 
@@ -58,6 +59,11 @@ private:
   void startExtractionTask(domain::ExtractionTask task);
   std::optional<domain::FileEntry> resolveFileEntryByPath(const QString &fullPath) const;
   bool isLikelyWindowsPartition() const;
+  bool selectFileRowByPath(const QString &fullPath);
+  bool isPrimarySupportedFileSystem(const QString &fsType) const;
+  bool isKnownUnsupportedOrUnconfirmedFileSystem(const QString &fsType) const;
+  QString supportScopeSummary() const;
+  void applyColumnProfile(int profileIndex);
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -87,7 +93,9 @@ private:
   QLabel *m_imageFormatValue{nullptr};
   QLabel *m_imageSizeValue{nullptr};
   QLabel *m_partitionValue{nullptr};
+  QLabel *m_currentPathValue{nullptr};
   QLabel *m_fsTypeValue{nullptr};
+  QLabel *m_supportScopeValue{nullptr};
 
   QLineEdit *m_nameFilterEdit{nullptr};
   QCheckBox *m_deletedOnlyCheck{nullptr};
@@ -96,6 +104,8 @@ private:
   QComboBox *m_typeFilterCombo{nullptr};
   QLineEdit *m_extensionFilterEdit{nullptr};
   QLineEdit *m_pathFilterEdit{nullptr};
+  QLineEdit *m_statusFilterEdit{nullptr};
+  QComboBox *m_columnProfileCombo{nullptr};
 
   QDockWidget *m_extractionDock{nullptr};
   QProgressBar *m_extractProgressBar{nullptr};
@@ -106,6 +116,9 @@ private:
   ArtifactTableModel *m_artifactModel{nullptr};
   ArtifactSortProxyModel *m_artifactProxy{nullptr};
   QStandardItemModel *m_extractStatusModel{nullptr};
+
+  QSet<QString> m_warnedSupportScopePartitions;
+  QString m_pendingFileSelectionPath;
 };
 
 } // namespace fie::gui

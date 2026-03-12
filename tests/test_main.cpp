@@ -23,6 +23,9 @@ int runForensicEdgeCaseTests();
 int runArtifactDiscoveryServiceTests();
 int runForensicOperationResultTests();
 int runWorkerResultSemanticsTests();
+int runFileEntryFilteringTests();
+int runFileEntryTableVisualCueTests();
+int runCorrelationUtilsTests();
 
 int main() {
   const int rc = runPathUtilsTests() + runTimestampSerializationTests() + runMetadataRecordTests() +
@@ -33,7 +36,8 @@ int main() {
                  runFileSystemMetadataModelTests() + runReadCacheTests() +
                  runExtractionCancellationAndProgressTests() + runTskReaderBridgeTests() +
                  runEndToEndSemanticsTests() + runCliOptionsTests() + runForensicEdgeCaseTests() +
-                 runArtifactDiscoveryServiceTests() + runForensicOperationResultTests() + runWorkerResultSemanticsTests();
+                 runArtifactDiscoveryServiceTests() + runForensicOperationResultTests() + runWorkerResultSemanticsTests() +
+                 runFileEntryFilteringTests() + runFileEntryTableVisualCueTests() + runCorrelationUtilsTests();
   if (rc == 0) {
     std::cout << "All tests passed\n";
   }

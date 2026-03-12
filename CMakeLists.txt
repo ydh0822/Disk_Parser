@@ -126,6 +126,10 @@ if(FIE_ENABLE_TESTS)
     tests/test_ArtifactDiscoveryService.cpp
     tests/test_ForensicOperationResult.cpp
     tests/test_WorkerResultSemantics.cpp
+    tests/test_FileEntryFiltering.cpp
+    tests/test_FileEntryTableVisualCues.cpp
+    tests/test_CorrelationUtils.cpp
+    src/gui/FileEntryTableModel.cpp
   )
   target_include_directories(fie_tests PRIVATE src)
   if(TARGET fie_workers)
