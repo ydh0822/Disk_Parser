@@ -73,17 +73,23 @@ if(FIE_ENABLE_GUI)
     message(FATAL_ERROR "FIE_ENABLE_GUI=ON but Qt6::Widgets was not found")
   endif()
 
+  add_library(fie_workers
+    src/workers/TaskRunner.cpp
+    src/workers/ExtractionWorker.cpp
+    src/workers/ForensicsWorkers.cpp
+    src/workers/WorkerOutcomePolicy.cpp
+  )
+
+  target_link_libraries(fie_workers PUBLIC fie_core Qt6::Core)
+
   add_executable(ForensicImageExtractor
     src/app/main.cpp
     src/gui/MainWindow.cpp
     src/gui/FileEntryTableModel.cpp
     src/gui/ArtifactTableModel.cpp
-    src/workers/TaskRunner.cpp
-    src/workers/ExtractionWorker.cpp
-    src/workers/ForensicsWorkers.cpp
   )
 
-  target_link_libraries(ForensicImageExtractor PRIVATE fie_core Qt6::Widgets)
+  target_link_libraries(ForensicImageExtractor PRIVATE fie_workers Qt6::Widgets)
 endif()
 
 if(FIE_ENABLE_CLI)
@@ -118,7 +124,21 @@ if(FIE_ENABLE_TESTS)
     tests/test_CliOptions.cpp
     tests/test_ForensicEdgeCases.cpp
     tests/test_ArtifactDiscoveryService.cpp
+    tests/test_ForensicOperationResult.cpp
+    tests/test_WorkerResultSemantics.cpp
   )
-  target_link_libraries(fie_tests PRIVATE fie_core Qt6::Core)
+  target_include_directories(fie_tests PRIVATE src)
+  if(TARGET fie_workers)
+    target_link_libraries(fie_tests PRIVATE fie_workers Qt6::Core)
+  else()
+    add_library(fie_workers_for_tests
+      src/workers/TaskRunner.cpp
+      src/workers/ExtractionWorker.cpp
+      src/workers/ForensicsWorkers.cpp
+      src/workers/WorkerOutcomePolicy.cpp
+    )
+    target_link_libraries(fie_workers_for_tests PUBLIC fie_core Qt6::Core)
+    target_link_libraries(fie_tests PRIVATE fie_workers_for_tests Qt6::Core)
+  endif()
   add_test(NAME fie_tests COMMAND fie_tests)
 endif()

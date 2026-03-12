@@ -19,9 +19,10 @@ public slots:
   void process();
   void requestCancel();
 
+
 signals:
   void progress(fie::forensics::ProgressInfo progress);
-  void completed(std::vector<fie::domain::ExtractionResult> results, QString error);
+  void completed(std::vector<fie::domain::ExtractionResult> results, fie::domain::ForensicOperationResult result);
 
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;

@@ -1,10 +1,13 @@
 #include "ForensicImageExtractor/workers/ForensicsWorkers.h"
 
 #include "ForensicImageExtractor/core/EwfSegmentResolver.h"
+#include "ForensicImageExtractor/domain/ForensicOperationResultUtils.h"
+#include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
 #include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
 #include "ForensicImageExtractor/forensics/FileSystemHandle.h"
 #include "ForensicImageExtractor/forensics/VolumeEnumerator.h"
-#include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
+
+#include "WorkerOutcomePolicy.h"
 
 namespace fie::workers {
 
@@ -15,23 +18,35 @@ ImageOpenWorker::ImageOpenWorker(std::shared_ptr<core::IImageReader> reader, QSt
 void ImageOpenWorker::requestCancel() { m_cancel->cancel(); }
 
 void ImageOpenWorker::process() {
-  QString error;
   fie::domain::ImageInfo info;
   if (m_cancel->isCancellationRequested()) {
-    emit completed(false, info, "Task cancelled");
+    emit completed(info, domain::op::cancelled());
     return;
   }
+
+  QString error;
   const bool ok = m_reader && m_reader->open(m_path, error);
   if (m_cancel->isCancellationRequested()) {
-    emit completed(false, info, "Task cancelled");
+    emit completed(info, domain::op::cancelled());
     return;
   }
-  if (ok) {
-    info.path = m_path;
-    info.sizeBytes = m_reader->size();
-    info.format = fie::core::isEwfPath(m_path) ? "EWF" : "RAW/DD";
+  if (!ok) {
+    emit completed(info, domain::op::failure("image_reader_open_failed", error));
+    return;
   }
-  emit completed(ok, info, error);
+
+  info.path = m_path;
+  info.sizeBytes = m_reader->size();
+  info.format = fie::core::isEwfPath(m_path) ? "EWF" : "RAW/DD";
+  if (!m_reader->lastWarning().isEmpty()) {
+    emit completed(info, domain::op::successWithWarning(domain::ForensicBackend::NotApplicable,
+                                                        "image_reader_open_warning",
+                                                        "Image opened with warning",
+                                                        m_reader->lastWarning()));
+    return;
+  }
+  emit completed(info,
+                 domain::op::success(domain::ForensicBackend::NotApplicable, "image_reader_opened", "Image opened"));
 }
 
 PartitionScanWorker::PartitionScanWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage)
@@ -41,29 +56,50 @@ void PartitionScanWorker::requestCancel() { m_cancel->cancel(); }
 
 void PartitionScanWorker::process() {
   if (!m_tskImage) {
-    emit completed({}, "TSK image adapter missing", {});
+    emit completed({}, domain::op::failure("missing_adapter", "TSK image adapter missing"));
     return;
   }
   if (m_cancel->isCancellationRequested()) {
-    emit completed({}, "Task cancelled", {});
+    emit completed({}, domain::op::cancelled());
     return;
   }
 
   QString openError;
   if (!m_tskImage->open(openError)) {
-    emit completed({}, openError, {});
+    emit completed({}, domain::op::failure("tsk_image_open_failed", openError,
+                                           domain::op::backendForImageOpenFailure(*m_tskImage)));
     return;
   }
   if (m_cancel->isCancellationRequested()) {
-    emit completed({}, "Task cancelled", {});
+    emit completed({}, domain::op::cancelled(domain::op::backendFromOpenAdapter(*m_tskImage)));
     return;
   }
 
   forensics::VolumeEnumerator enumerator;
   QString error;
   const auto parts = enumerator.enumerate(*m_tskImage, error);
+  const auto backend = domain::op::backendFromOpenAdapter(*m_tskImage);
   const auto warning = m_tskImage->lastWarning();
-  emit completed(parts, m_cancel->isCancellationRequested() ? "Task cancelled" : error, warning);
+
+  if (m_cancel->isCancellationRequested()) {
+    emit completed({}, domain::op::cancelled(backend));
+    return;
+  }
+
+  if (!error.isEmpty()) {
+    emit completed({}, domain::op::failure("partition_enumeration_failed", error, backend));
+    return;
+  }
+
+  if (!warning.isEmpty()) {
+    emit completed(parts, domain::op::successWithWarning(backend,
+                                                         "partition_enumeration_with_fallback",
+                                                         "Partitions enumerated using fallback backend",
+                                                         warning));
+    return;
+  }
+
+  emit completed(parts, domain::op::success(backend, "partition_enumerated", "Partitions enumerated"));
 }
 
 DirectoryListWorker::DirectoryListWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
@@ -75,31 +111,34 @@ DirectoryListWorker::DirectoryListWorker(std::shared_ptr<core::TskImageHandleAda
 void DirectoryListWorker::requestCancel() { m_cancel->cancel(); }
 
 void DirectoryListWorker::process() {
-  if (!m_tskImage || !m_tskImage->isOpen()) {
-    emit completed({}, "TSK image not open");
-    return;
-  }
   if (m_cancel->isCancellationRequested()) {
-    emit completed({}, "Task cancelled");
+    emit completed({}, domain::op::cancelled());
     return;
   }
+
+  if (!m_tskImage || !m_tskImage->isOpen()) {
+    emit completed({}, domain::op::failure("image_not_open", "TSK image not open"));
+    return;
+  }
+  const auto backend = domain::op::backendFromOpenAdapter(*m_tskImage);
 
   QString error;
   forensics::FileSystemHandle fs;
   if (!fs.open(*m_tskImage, m_partition, error)) {
-    emit completed({}, error);
+    emit completed({}, domain::op::failure("filesystem_open_failed", error, backend));
     return;
   }
   if (m_cancel->isCancellationRequested()) {
-    emit completed({}, "Task cancelled");
+    emit completed({}, domain::op::cancelled(backend));
     return;
   }
 
   forensics::FileSystemBrowser browser;
   auto entries = browser.listDirectory(fs, m_path, error);
-  emit completed(entries, m_cancel->isCancellationRequested() ? "Task cancelled" : error);
+  const auto resolved = detail::resolveDirectoryListOutcome(std::move(entries), error,
+                                                           m_cancel->isCancellationRequested(), backend);
+  emit completed(resolved.first, resolved.second);
 }
-
 
 ArtifactScanWorker::ArtifactScanWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
                                        fie::domain::PartitionInfo partition)
@@ -109,19 +148,21 @@ ArtifactScanWorker::ArtifactScanWorker(std::shared_ptr<core::TskImageHandleAdapt
 void ArtifactScanWorker::requestCancel() { m_cancel->cancel(); }
 
 void ArtifactScanWorker::process() {
-  if (!m_tskImage || !m_tskImage->isOpen()) {
-    emit completed({}, {}, "TSK image not open");
-    return;
-  }
   if (m_cancel->isCancellationRequested()) {
-    emit completed({}, {}, "Task cancelled");
+    emit completed({}, domain::op::cancelled());
     return;
   }
+
+  if (!m_tskImage || !m_tskImage->isOpen()) {
+    emit completed({}, domain::op::failure("image_not_open", "TSK image not open"));
+    return;
+  }
+  const auto backend = domain::op::backendFromOpenAdapter(*m_tskImage);
 
   QString error;
   forensics::FileSystemHandle fs;
   if (!fs.open(*m_tskImage, m_partition, error)) {
-    emit completed({}, {}, error);
+    emit completed({}, domain::op::failure("filesystem_open_failed", error, backend));
     return;
   }
 
@@ -136,11 +177,9 @@ void ArtifactScanWorker::process() {
       warnings,
       [this]() { return m_cancel->isCancellationRequested(); });
 
-  if (m_cancel->isCancellationRequested()) {
-    emit completed({}, warnings, "Task cancelled");
-    return;
-  }
-  emit completed(artifacts, warnings, QString());
+  const auto resolved = detail::resolveArtifactDiscoveryOutcome(std::move(artifacts), warnings,
+                                                               m_cancel->isCancellationRequested(), backend);
+  emit completed(resolved.first, resolved.second);
 }
 
 } // namespace fie::workers

@@ -32,8 +32,22 @@
 - ADS and SI/FN are shown in UI/catalog as NTFS-specific fields.
 - Host timestamp application is optional and recorded per extraction item.
 
+## End-to-end operation result semantics
+- All worker-facing forensic pipeline stages now emit `domain::ForensicOperationResult` with the same shape:
+  - `state`: `Success`, `SuccessWithWarning`, or `Failure`
+  - `backend`: `ReaderBridge`, `PathFallback`, `Unknown`, or `NotApplicable`
+  - `diagnostic`: `reason` (stable machine token), `userMessage` (UI-facing text), `detail` (internal context)
+- This applies consistently across image open, partition enumeration, filesystem open/list flows, artifact scan, and extraction worker completion.
+- Stage naming is split intentionally: image-reader stage uses `image_reader_*` reason tokens, while TSK adapter open uses `tsk_image_open_*` reason tokens to avoid conflating reader open with TSK backend open.
+- Cancellation policy is explicit and deterministic across workers: cancellation always emits `Failure` with reason token `cancelled` and does not rely on downstream error-string matching.
+- Partial-payload policy on cancellation is **discard**: partition lists, directory entries, artifact rows, and extraction rows are suppressed when cancellation is observed after a long-running call, preventing cancelled operations from being misread as successful partial runs.
+- Backend semantics on open failure are explicit: `ReaderBridge` when fallback is disabled (primary-path failure), `Unknown` when fallback is enabled and open fails (bridge/fallback failure path cannot truthfully be reduced to one backend), and `PathFallback`/`ReaderBridge` only once an image is actually open.
+- UI orchestration (`MainWindow`) consumes this structured result instead of ambiguous `bool + QString` combinations and logs backend + reason for forensic traceability.
+
 ## Warning/error separation
-- TSK adapter fallback warnings are surfaced as warnings (not hard errors) through worker signals.
+- TSK adapter fallback warnings are surfaced as warnings (not hard errors), and fallback backend usage is explicitly tagged as `PathFallback` in operation results.
+- Fallback success is no longer semantically identical to primary success at orchestration boundaries.
+- `diagnostic.detail` is diagnostic-only free text (log/analyst context), not a structured warnings protocol; callers must not parse it.
 
 ## Performance and responsiveness model
 - `core::ReadCache` provides fixed-size block caching for `IImageReader`-backed random reads and is reusable by bridge/callback-style readers to avoid redundant backend reads.
@@ -41,6 +55,8 @@
 - Long-running worker flows are cooperative and cancellable via `forensics::CancellationToken` (`requestCancel` slot on open/scan/list/extract workers).
 - Extraction progress is reported as structured `ProgressInfo` with per-file and aggregate byte counters; UI status text is updated from worker progress signals.
 - Extraction remains read-only; short reads, warnings, and error statuses are preserved and surfaced exactly as before.
+- Extraction cancellation policy: worker payload/catalog updates are suppressed on cancellation; GUI marks in-flight rows as cancelled. Partially written files may still exist on disk when cancellation occurs mid-stream, and this is reported as cancellation context rather than successful extraction rows.
+- Worker cancellation paths and failures use deterministic `Failure` result states with explicit reason tokens (for example `cancelled`, `filesystem_open_failed`, `directory_list_failed`, `extraction_failed`).
 - The current pass intentionally avoids speculative indexing/background scanning and focuses on deterministic throughput + UI responsiveness.
 
 
@@ -48,7 +64,7 @@
 - `forensics::ArtifactDiscoveryService` is a domain/service layer that resolves Windows artifact paths from discovered `/Users/*` profiles plus system-wide locations.
 - The service consumes a directory-list callback so path resolution logic is testable without widget dependencies.
 - Output is `domain::ArtifactRecord` (category, artifact name, profile, logical path, status, size/timestamp, partition/filesystem context, notes).
-- `workers::ArtifactScanWorker` wires GUI async execution to the service and returns both artifact rows and partial-failure warnings for analyst visibility.
+- `workers::ArtifactScanWorker` wires GUI async execution to the service and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
 - Missing resolver targets are represented as `ArtifactRecord.status="Missing"` (not warnings); warnings are reserved for traversal/listing failures and cancellation/error conditions.
 - `gui::ArtifactTableModel` and the MainWindow `Artifacts` tab provide scan/extract/copy/jump actions while reusing existing extraction/catalog plumbing.
 - Artifact scan entry is softly gated by a lightweight heuristic (partition FS type + `/Windows` root presence probe) to avoid noisy scans on clearly non-Windows targets; this is intentionally best-effort, not authoritative OS detection.
