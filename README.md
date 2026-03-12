@@ -15,8 +15,14 @@ Forensic Image Extractor provides both a Qt 6 Widgets desktop application and a 
 - Evidence summary header, interactive table filters (name/deleted/type/ADS), safe first-bytes preview, and extraction progress workspace dock.
 
 - Artifact Explorer MVP tab for Windows triage (resolver-based, not deep-parsed) with profile-aware path resolution, existence/status checks, cancellation support, and jump-to-filesystem/extract/copy-path actions.
-- File browser upgrades: logical path + allocated columns, allocated/extension/path filters, and row-level context menu actions (extract/copy-path/jump-parent/export metadata/open related artifact context).
+- File browser upgrades: extension + logical path + allocated visibility, allocated/extension/path/status filters, and row-level context menu actions (extract/copy path/copy inode-jump parent/export metadata/open related artifact context).
 - JSON/CSV metadata catalog export with generic timestamps and optional NTFS SI/FN timestamp preservation.
+
+## Declared support scope (current milestone)
+- **Primary image format targets:** RAW/DD and E01/EWF.
+- **Primary filesystem targets:** NTFS, FAT32, exFAT, EXT3, EXT4.
+- **Not currently claimed as supported targets:** ReFS, XFS.
+- Generic TSK traversal may still enumerate other filesystems in some cases, but those paths are treated as unconfirmed and are surfaced with caution in the UI.
 
 ## E01 + TSK interoperability note
 - `TskImageHandleAdapter` now attempts a reader-backed TSK image open first through `TskReaderBridge`.
@@ -87,7 +93,7 @@ The repository now includes a minimal production-usable headless executable that
 
 ## New GUI analysis workflows
 - **Artifacts tab**: scan known Windows artifact paths for the selected partition, review status/size/timestamp context, extract selected artifact files, copy logical paths, and jump directly into the file browser context. Non-Windows suppression uses a lightweight heuristic (filesystem type + `/Windows` probe) to avoid noisy scans.
-- **Enhanced file triage**: added logical-path and allocated-state visibility, path/extension filtering, and right-click actions for extract/path copy/parent navigation/metadata export/artifact cross-navigation.
+- **Enhanced file triage**: tuned for faster analyst scanning with compact triage filters, lightweight column profiles (triage/NTFS detail/extraction-status), denser sectioned metadata, bounded read-only hexdump preview with signature/truncation context, restrained row-state cues (deleted/unallocated/ADS/status), richer artifact↔file correlation cues, and right-click actions for extract/path+inode copy/parent navigation/metadata export/artifact cross-navigation.
 - Scope remains read-only; this is a resolver-based Artifact Explorer MVP and deep parser views for SQLite/registry artifacts are intentionally deferred to future passes.
 
 ## Build requirements

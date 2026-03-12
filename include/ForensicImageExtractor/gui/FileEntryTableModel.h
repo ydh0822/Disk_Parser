@@ -12,6 +12,7 @@ class FileEntryTableModel : public QAbstractTableModel {
 public:
   enum Column {
     Name = 0,
+    Extension,
     LogicalPath,
     Type,
     Size,
@@ -60,6 +61,7 @@ public:
   void setAdsOnly(bool v);
   void setExtensionFilter(QString extension);
   void setPathContains(QString pathContains);
+  void setStatusContains(QString statusContains);
 
 protected:
   bool filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const override;
@@ -74,6 +76,7 @@ private:
   bool m_adsOnly{false};
   QString m_extensionFilter;
   QString m_pathContains;
+  QString m_statusContains;
 };
 
 } // namespace fie::gui

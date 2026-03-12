@@ -1,8 +1,87 @@
 #include "ForensicImageExtractor/gui/FileEntryTableModel.h"
 
+#include <QBrush>
+#include <QColor>
+#include <QFont>
+
 namespace fie::gui {
 namespace {
 QString dt(const std::optional<QDateTime> &v) { return v ? v->toString(Qt::ISODate) : ""; }
+
+QString fileExtension(const QString &name) {
+  const int dot = name.lastIndexOf('.');
+  if (dot <= 0 || dot == name.size() - 1) return "";
+  return name.mid(dot + 1).toLower();
+}
+
+enum class CueLevel {
+  None,
+  Informational,
+  Alert,
+};
+
+struct CuePolicy {
+  QBrush foreground;
+  bool bold{false};
+  QString tooltip;
+};
+
+bool hasAds(const fie::domain::FileEntry &entry) {
+  return entry.metadata.ntfs && entry.metadata.ntfs->hasAds;
+}
+
+CueLevel statusCueLevel(const QString &status) {
+  const QString s = status.toLower();
+  if (s.contains("warning") || s.contains("error") || s.contains("failed") || s.contains("cancelled") ||
+      s.contains("short_read")) {
+    return CueLevel::Alert;
+  }
+  if (s.contains("processing") || s.contains("queued")) {
+    return CueLevel::Informational;
+  }
+  return CueLevel::None;
+}
+
+CuePolicy cuePolicyForCell(const fie::domain::FileEntry &entry,
+                           int column,
+                           const QString &status) {
+  CuePolicy out;
+  switch (column) {
+  case fie::gui::FileEntryTableModel::Deleted:
+    if (entry.isDeleted) {
+      out.foreground = QBrush(QColor(176, 48, 48));
+      out.bold = true;
+      out.tooltip = "Deleted entry";
+    }
+    break;
+  case fie::gui::FileEntryTableModel::Allocated:
+    if (!entry.isAllocated) {
+      out.foreground = QBrush(QColor(176, 48, 48));
+      out.tooltip = "Currently unallocated";
+    }
+    break;
+  case fie::gui::FileEntryTableModel::Ads:
+    if (hasAds(entry)) {
+      out.foreground = QBrush(QColor(67, 109, 173));
+      out.tooltip = "NTFS alternate data streams detected";
+    }
+    break;
+  case fie::gui::FileEntryTableModel::Status: {
+    const auto level = statusCueLevel(status);
+    if (level == CueLevel::Alert) {
+      out.foreground = QBrush(QColor(176, 48, 48));
+      out.bold = true;
+    } else if (level == CueLevel::Informational) {
+      out.foreground = QBrush(QColor(67, 109, 173));
+    }
+    out.tooltip = status;
+    break;
+  }
+  default:
+    break;
+  }
+  return out;
+}
 }
 
 FileEntryTableModel::FileEntryTableModel(QObject *parent) : QAbstractTableModel(parent) {}
@@ -23,6 +102,7 @@ QVariant FileEntryTableModel::data(const QModelIndex &index, int role) const {
   if (role == Qt::DisplayRole) {
     switch (index.column()) {
     case Name: return f.name;
+    case Extension: return fileExtension(f.name);
     case LogicalPath: return f.fullPath;
     case Type: return f.isDirectory ? "Directory" : "File";
     case Size: return QString::number(f.sizeBytes);
@@ -43,6 +123,23 @@ QVariant FileEntryTableModel::data(const QModelIndex &index, int role) const {
     }
   }
 
+  const QString status = m_status.value(index.row(), "Not started");
+  const CuePolicy cue = cuePolicyForCell(f, index.column(), status);
+
+  if (role == Qt::ForegroundRole && cue.foreground.style() != Qt::NoBrush) {
+    return cue.foreground;
+  }
+
+  if (role == Qt::FontRole && cue.bold) {
+    QFont font;
+    font.setBold(true);
+    return font;
+  }
+
+  if (role == Qt::ToolTipRole && !cue.tooltip.isEmpty()) {
+    return cue.tooltip;
+  }
+
   if (role == Qt::UserRole) {
     return f.fullPath;
   }
@@ -52,7 +149,7 @@ QVariant FileEntryTableModel::data(const QModelIndex &index, int role) const {
 
 QVariant FileEntryTableModel::headerData(int section, Qt::Orientation orientation, int role) const {
   if (orientation != Qt::Horizontal || role != Qt::DisplayRole) return {};
-  static const QStringList headers{"Name","Logical Path","Type","Size","Deleted","Allocated","File ID/Inode","Created","Modified",
+  static const QStringList headers{"Name","Ext","Logical Path","Type","Size","Deleted","Allocated","File ID/Inode","Created","Modified",
     "Entry Modified","Accessed","NTFS SI Created","NTFS SI Modified","NTFS FN Created","NTFS FN Modified",
     "ADS (NTFS)","Status"};
   return headers.value(section);
@@ -90,6 +187,7 @@ void FileEntryFilterProxyModel::setDirectoriesOnly(bool v) { m_directoriesOnly =
 void FileEntryFilterProxyModel::setAdsOnly(bool v) { m_adsOnly = v; invalidateFilter(); }
 void FileEntryFilterProxyModel::setExtensionFilter(QString extension) { m_extensionFilter = std::move(extension); invalidateFilter(); }
 void FileEntryFilterProxyModel::setPathContains(QString pathContains) { m_pathContains = std::move(pathContains); invalidateFilter(); }
+void FileEntryFilterProxyModel::setStatusContains(QString statusContains) { m_statusContains = std::move(statusContains); invalidateFilter(); }
 
 bool FileEntryFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelIndex &sourceParent) const {
   const auto *m = qobject_cast<const FileEntryTableModel *>(sourceModel());
@@ -103,7 +201,17 @@ bool FileEntryFilterProxyModel::filterAcceptsRow(int sourceRow, const QModelInde
   if (m_filesOnly && entry->isDirectory) return false;
   if (m_directoriesOnly && !entry->isDirectory) return false;
   if (!m_pathContains.isEmpty() && !entry->fullPath.contains(m_pathContains, Qt::CaseInsensitive)) return false;
-  if (!m_extensionFilter.isEmpty() && !entry->name.endsWith(m_extensionFilter, Qt::CaseInsensitive)) return false;
+  if (!m_extensionFilter.isEmpty()) {
+    QString normalized = m_extensionFilter.trimmed();
+    if (normalized.startsWith('.')) normalized = normalized.mid(1);
+    if (fileExtension(entry->name).compare(normalized, Qt::CaseInsensitive) != 0) return false;
+  }
+  if (!m_statusContains.isEmpty()) {
+    const QModelIndex statusIndex = m->index(sourceRow, FileEntryTableModel::Status);
+    const QString statusValue = m->data(statusIndex, Qt::DisplayRole).toString();
+    if (!statusValue.contains(m_statusContains, Qt::CaseInsensitive)) return false;
+  }
+
   if (m_adsOnly) {
     const bool hasAds = entry->metadata.ntfs && entry->metadata.ntfs->hasAds;
     if (!hasAds) return false;
@@ -122,6 +230,12 @@ bool FileEntryFilterProxyModel::lessThan(const QModelIndex &sourceLeft, const QM
   if (!left || !right) return QSortFilterProxyModel::lessThan(sourceLeft, sourceRight);
 
   switch (sourceLeft.column()) {
+  case FileEntryTableModel::Extension:
+    return fileExtension(left->name) < fileExtension(right->name);
+  case FileEntryTableModel::LogicalPath:
+    return left->fullPath.compare(right->fullPath, Qt::CaseInsensitive) < 0;
+  case FileEntryTableModel::Type:
+    return static_cast<int>(left->isDirectory) < static_cast<int>(right->isDirectory);
   case FileEntryTableModel::Size:
     return left->sizeBytes < right->sizeBytes;
   case FileEntryTableModel::FileId:
@@ -152,6 +266,16 @@ bool FileEntryFilterProxyModel::lessThan(const QModelIndex &sourceLeft, const QM
     const auto l = (left->metadata.ntfs ? left->metadata.ntfs->fileNameInfo.created : std::optional<QDateTime>{}).value_or(QDateTime());
     const auto r = (right->metadata.ntfs ? right->metadata.ntfs->fileNameInfo.created : std::optional<QDateTime>{}).value_or(QDateTime());
     return l < r;
+  }
+  case FileEntryTableModel::Ads: {
+    const QString l = (left->metadata.ntfs && left->metadata.ntfs->hasAds) ? left->metadata.ntfs->adsNames.join(';') : QString();
+    const QString r = (right->metadata.ntfs && right->metadata.ntfs->hasAds) ? right->metadata.ntfs->adsNames.join(';') : QString();
+    return l.compare(r, Qt::CaseInsensitive) < 0;
+  }
+  case FileEntryTableModel::Status: {
+    const QModelIndex lidx = m->index(sourceLeft.row(), FileEntryTableModel::Status);
+    const QModelIndex ridx = m->index(sourceRight.row(), FileEntryTableModel::Status);
+    return m->data(lidx, Qt::DisplayRole).toString().compare(m->data(ridx, Qt::DisplayRole).toString(), Qt::CaseInsensitive) < 0;
   }
   case FileEntryTableModel::NtfsFnModified: {
     const auto l = (left->metadata.ntfs ? left->metadata.ntfs->fileNameInfo.modified : std::optional<QDateTime>{}).value_or(QDateTime());

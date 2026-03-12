@@ -1,4 +1,5 @@
 #include "ForensicImageExtractor/gui/MainWindow.h"
+#include "ForensicImageExtractor/gui/CorrelationUtils.h"
 
 #include "ForensicImageExtractor/core/ImageReaderFactory.h"
 #include "ForensicImageExtractor/utils/MetadataFactory.h"
@@ -15,8 +16,10 @@
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QGroupBox>
+#include <QFontDatabase>
 #include <QHash>
 #include <QHeaderView>
 #include <QLabel>
@@ -41,10 +44,12 @@
 #include <QTextEdit>
 #include <QThread>
 #include <memory>
+#include <array>
 #include <algorithm>
 #include <QToolBar>
 #include <QTreeWidget>
 #include <QVBoxLayout>
+#include <QVector>
 
 #if defined(FIE_HAS_TSK)
 #include <tsk/libtsk.h>
@@ -56,6 +61,19 @@ constexpr int RolePartition = Qt::UserRole;
 constexpr int RoleType = Qt::UserRole + 1;
 constexpr int RolePath = Qt::UserRole + 2;
 constexpr int RoleLoaded = Qt::UserRole + 3;
+constexpr int kPreviewBytesLimit = 256;
+
+QString detectSignatureHint(const QByteArray &bytes) {
+  if (bytes.size() >= 2 && bytes[0] == 'M' && bytes[1] == 'Z') return "PE/EXE (MZ)";
+  if (bytes.size() >= 4 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F') return "PDF";
+  if (bytes.size() >= 4 && static_cast<unsigned char>(bytes[0]) == 0x50 && static_cast<unsigned char>(bytes[1]) == 0x4B &&
+      static_cast<unsigned char>(bytes[2]) == 0x03 && static_cast<unsigned char>(bytes[3]) == 0x04) return "ZIP/OOXML/JAR";
+  if (bytes.size() >= 4 && static_cast<unsigned char>(bytes[0]) == 0x7F && bytes[1] == 'E' && bytes[2] == 'L' && bytes[3] == 'F') return "ELF";
+  if (bytes.size() >= 8 && static_cast<unsigned char>(bytes[0]) == 0x89 && bytes[1] == 'P' && bytes[2] == 'N' && bytes[3] == 'G') return "PNG";
+  if (bytes.size() >= 3 && static_cast<unsigned char>(bytes[0]) == 0xFF && static_cast<unsigned char>(bytes[1]) == 0xD8 &&
+      static_cast<unsigned char>(bytes[2]) == 0xFF) return "JPEG";
+  return "Unknown";
+}
 
 QString formatBytes(quint64 size) {
   constexpr double kb = 1024.0;
@@ -69,9 +87,21 @@ QString formatBytes(quint64 size) {
 
 QString bytesToHex(const QByteArray &bytes) {
   QString out;
-  for (int i = 0; i < bytes.size(); ++i) {
-    out += QString("%1 ").arg(static_cast<unsigned char>(bytes[i]), 2, 16, QLatin1Char('0')).toUpper();
-    if ((i + 1) % 16 == 0) out += '\n';
+  for (int base = 0; base < bytes.size(); base += 16) {
+    out += QString("%1  ").arg(base, 8, 16, QLatin1Char('0')).toUpper();
+    QString ascii;
+    for (int i = 0; i < 16; ++i) {
+      const int idx = base + i;
+      if (idx < bytes.size()) {
+        const auto v = static_cast<unsigned char>(bytes[idx]);
+        out += QString("%1 ").arg(v, 2, 16, QLatin1Char('0')).toUpper();
+        ascii += (v >= 32 && v < 127) ? QChar(static_cast<char>(v)) : QChar('.');
+      } else {
+        out += "   ";
+        ascii += ' ';
+      }
+    }
+    out += QString(" |%1|\n").arg(ascii);
   }
   return out.trimmed();
 }
@@ -136,34 +166,63 @@ void MainWindow::setupUi() {
   m_imageFormatValue = new QLabel("-");
   m_imageSizeValue = new QLabel("-");
   m_partitionValue = new QLabel("-");
+  m_currentPathValue = new QLabel("/");
   m_fsTypeValue = new QLabel("-");
+  m_supportScopeValue = new QLabel("-");
+  m_supportScopeValue->setWordWrap(true);
   summaryForm->addRow("Image Path", m_imagePathValue);
   summaryForm->addRow("Format", m_imageFormatValue);
   summaryForm->addRow("Image Size", m_imageSizeValue);
-  summaryForm->addRow("Selected Partition", m_partitionValue);
-  summaryForm->addRow("Filesystem Type", m_fsTypeValue);
+  summaryForm->addRow("Part", m_partitionValue);
+  summaryForm->addRow("Path", m_currentPathValue);
+  summaryForm->addRow("FS", m_fsTypeValue);
+  summaryForm->addRow("Targets", m_supportScopeValue);
 
-  auto *filterBox = new QGroupBox("File Filters", rootWidget);
-  auto *filterForm = new QFormLayout(filterBox);
+  auto *filterBox = new QGroupBox("Triage Filters", rootWidget);
+  auto *filterLayout = new QVBoxLayout(filterBox);
+  auto *quickGrid = new QGridLayout();
+  quickGrid->setHorizontalSpacing(6);
+  quickGrid->setVerticalSpacing(4);
   m_nameFilterEdit = new QLineEdit(filterBox);
-  m_nameFilterEdit->setPlaceholderText("name contains...");
-  m_deletedOnlyCheck = new QCheckBox("Deleted only", filterBox);
-  m_allocatedOnlyCheck = new QCheckBox("Allocated only", filterBox);
-  m_adsOnlyCheck = new QCheckBox("ADS only", filterBox);
+  m_nameFilterEdit->setPlaceholderText("name contains");
   m_extensionFilterEdit = new QLineEdit(filterBox);
-  m_extensionFilterEdit->setPlaceholderText("e.g. .exe");
+  m_extensionFilterEdit->setPlaceholderText("ext (exe or .exe)");
   m_pathFilterEdit = new QLineEdit(filterBox);
-  m_pathFilterEdit->setPlaceholderText("path contains...");
+  m_pathFilterEdit->setPlaceholderText("path contains");
+  m_statusFilterEdit = new QLineEdit(filterBox);
+  m_statusFilterEdit->setPlaceholderText("status contains");
   m_typeFilterCombo = new QComboBox(filterBox);
-  m_typeFilterCombo->addItems({"All", "Files only", "Directories only"});
-  filterForm->addRow("Name", m_nameFilterEdit);
-  filterForm->addRow("Type", m_typeFilterCombo);
-  filterForm->addRow("Extension", m_extensionFilterEdit);
-  filterForm->addRow("Path", m_pathFilterEdit);
-  filterForm->addRow("", m_deletedOnlyCheck);
-  filterForm->addRow("", m_allocatedOnlyCheck);
-  filterForm->addRow("", m_adsOnlyCheck);
+  m_typeFilterCombo->addItems({"All entries", "Files only", "Directories only"});
+  m_columnProfileCombo = new QComboBox(filterBox);
+  m_columnProfileCombo->addItems({"Triage", "NTFS detail", "Extraction/status"});
+  auto *clearFiltersButton = new QPushButton("Clear", filterBox);
 
+  quickGrid->addWidget(new QLabel("Name", filterBox), 0, 0);
+  quickGrid->addWidget(m_nameFilterEdit, 0, 1);
+  quickGrid->addWidget(new QLabel("Ext", filterBox), 0, 2);
+  quickGrid->addWidget(m_extensionFilterEdit, 0, 3);
+  quickGrid->addWidget(new QLabel("Type", filterBox), 0, 4);
+  quickGrid->addWidget(m_typeFilterCombo, 0, 5);
+  quickGrid->addWidget(new QLabel("Columns", filterBox), 0, 6);
+  quickGrid->addWidget(m_columnProfileCombo, 0, 7);
+  quickGrid->addWidget(clearFiltersButton, 0, 8);
+
+  quickGrid->addWidget(new QLabel("Path", filterBox), 1, 0);
+  quickGrid->addWidget(m_pathFilterEdit, 1, 1, 1, 3);
+  quickGrid->addWidget(new QLabel("Status", filterBox), 1, 4);
+  quickGrid->addWidget(m_statusFilterEdit, 1, 5, 1, 2);
+
+  auto *stateRow = new QHBoxLayout();
+  m_deletedOnlyCheck = new QCheckBox("Deleted", filterBox);
+  m_allocatedOnlyCheck = new QCheckBox("Allocated", filterBox);
+  m_adsOnlyCheck = new QCheckBox("ADS (NTFS)", filterBox);
+  stateRow->addWidget(m_deletedOnlyCheck);
+  stateRow->addWidget(m_allocatedOnlyCheck);
+  stateRow->addWidget(m_adsOnlyCheck);
+  stateRow->addStretch(1);
+
+  filterLayout->addLayout(quickGrid);
+  filterLayout->addLayout(stateRow);
   auto *topSplitter = new QSplitter(Qt::Horizontal, rootWidget);
   topSplitter->addWidget(summaryBox);
   topSplitter->addWidget(filterBox);
@@ -187,7 +246,18 @@ void MainWindow::setupUi() {
   m_fileTable->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_fileTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_fileTable->setSortingEnabled(true);
-  m_fileTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  m_fileTable->setAlternatingRowColors(true);
+  m_fileTable->setWordWrap(false);
+  m_fileTable->verticalHeader()->setVisible(false);
+  m_fileTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+  m_fileTable->horizontalHeader()->setStretchLastSection(true);
+  m_fileTable->setColumnWidth(FileEntryTableModel::Name, 260);
+  m_fileTable->setColumnWidth(FileEntryTableModel::Extension, 70);
+  m_fileTable->setColumnWidth(FileEntryTableModel::LogicalPath, 420);
+  m_fileTable->setColumnWidth(FileEntryTableModel::Size, 110);
+  m_fileTable->setColumnWidth(FileEntryTableModel::Modified, 165);
+  m_fileTable->setColumnWidth(FileEntryTableModel::FileId, 110);
+  applyColumnProfile(0);
 
   auto *artifactTab = new QWidget(m_centerTabs);
   auto *artifactLayout = new QVBoxLayout(artifactTab);
@@ -226,8 +296,10 @@ void MainWindow::setupUi() {
   auto *rightLayout = new QVBoxLayout(rightPanel);
   m_metadataPanel = new QTextEdit(rightPanel);
   m_metadataPanel->setReadOnly(true);
+  m_metadataPanel->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
   m_previewPanel = new QTextEdit(rightPanel);
   m_previewPanel->setReadOnly(true);
+  m_previewPanel->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
   rightLayout->addWidget(new QLabel("Metadata Summary", rightPanel));
   rightLayout->addWidget(m_metadataPanel, 1);
   rightLayout->addWidget(new QLabel("Safe Preview (first bytes)", rightPanel));
@@ -255,7 +327,7 @@ void MainWindow::setupUi() {
   m_extractProgressBar = new QProgressBar(dockBody);
   m_extractSummaryLabel = new QLabel("No extraction started", dockBody);
   m_extractStatusModel = new QStandardItemModel(this);
-  m_extractStatusModel->setHorizontalHeaderLabels({"Path", "Status", "Bytes", "Warning/Error"});
+  m_extractStatusModel->setHorizontalHeaderLabels({"Path", "Status", "Bytes", "Context"});
   m_extractStatusView = new QTableView(dockBody);
   m_extractStatusView->setModel(m_extractStatusModel);
   m_extractStatusView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
@@ -274,19 +346,34 @@ void MainWindow::setupUi() {
   connect(m_adsOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setAdsOnly);
   connect(m_extensionFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setExtensionFilter);
   connect(m_pathFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setPathContains);
+  connect(m_statusFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setStatusContains);
   connect(m_typeFilterCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
     m_fileProxy->setFilesOnly(idx == 1);
     m_fileProxy->setDirectoriesOnly(idx == 2);
+  });
+  connect(m_columnProfileCombo, &QComboBox::currentIndexChanged, this, &MainWindow::applyColumnProfile);
+  connect(clearFiltersButton, &QPushButton::clicked, this, [this]() {
+    m_nameFilterEdit->clear();
+    m_extensionFilterEdit->clear();
+    m_pathFilterEdit->clear();
+    m_statusFilterEdit->clear();
+    m_typeFilterCombo->setCurrentIndex(0);
+    m_deletedOnlyCheck->setChecked(false);
+    m_allocatedOnlyCheck->setChecked(false);
+    m_adsOnlyCheck->setChecked(false);
   });
 
   m_fileTable->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_fileTable, &QWidget::customContextMenuRequested, this, [this](const QPoint &pt) {
     QMenu menu(this);
-    auto *extract = menu.addAction("Extract");
+    auto *extract = menu.addAction("Extract selected");
     auto *copyPath = menu.addAction("Copy logical path");
-    auto *jumpParent = menu.addAction("Jump to parent");
-    auto *exportMeta = menu.addAction("Export row metadata");
-    auto *relatedArtifact = menu.addAction("Open related artifact context");
+    auto *jumpParent = menu.addAction("Jump to parent directory");
+    menu.addSeparator();
+    auto *copyInode = menu.addAction("Copy inode/file ID");
+    auto *relatedArtifact = menu.addAction("Find related artifact context");
+    menu.addSeparator();
+    auto *exportMeta = menu.addAction("Export row metadata (JSON)");
     auto *chosen = menu.exec(m_fileTable->viewport()->mapToGlobal(pt));
     if (!chosen) return;
 
@@ -300,23 +387,31 @@ void MainWindow::setupUi() {
       onExtractSelected();
     } else if (chosen == copyPath) {
       QApplication::clipboard()->setText(entry->fullPath);
+    } else if (chosen == copyInode) {
+      QApplication::clipboard()->setText(QString::number(entry->inode));
     } else if (chosen == jumpParent) {
       const auto parent = entry->fullPath.left(entry->fullPath.lastIndexOf('/'));
       loadDirectoryAtPath(parent.isEmpty() ? "/" : parent);
     } else if (chosen == relatedArtifact) {
+      int bestRow = -1;
+      int bestRank = 100;
       for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
         const auto *artifact = m_artifactModel->artifactAt(r);
         if (!artifact) continue;
-        const auto artifactPath = artifact->sourceLogicalPath;
-        const bool exact = artifactPath.compare(entry->fullPath, Qt::CaseInsensitive) == 0;
-        const bool artifactContainsFile = entry->fullPath.startsWith(artifactPath + '/', Qt::CaseInsensitive);
-        const bool fileContainsArtifact = artifactPath.startsWith(entry->fullPath + '/', Qt::CaseInsensitive);
-        if (exact || artifactContainsFile || fileContainsArtifact) {
-          m_centerTabs->setCurrentIndex(1);
-          const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(r, 0));
-          if (proxyRow.isValid()) m_artifactTable->selectRow(proxyRow.row());
-          break;
+        if (!pathsCorrelate(entry->fullPath, artifact->sourceLogicalPath)) continue;
+        const int rank = pathCorrelationRank(entry->fullPath, artifact->sourceLogicalPath);
+        if (rank < bestRank) {
+          bestRank = rank;
+          bestRow = r;
+          if (bestRank == 0) break;
         }
+      }
+      if (bestRow >= 0) {
+        m_centerTabs->setCurrentIndex(1);
+        const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(bestRow, 0));
+        if (proxyRow.isValid()) m_artifactTable->selectRow(proxyRow.row());
+      } else {
+        statusBar()->showMessage("No correlated artifact rows for selected file", 5000);
       }
     } else if (chosen == exportMeta) {
       const auto path = QFileDialog::getSaveFileName(this, "Export row metadata", {}, "JSON (*.json)");
@@ -396,15 +491,138 @@ void MainWindow::refreshEvidenceSummary() {
   m_imageFormatValue->setText(m_imageInfo.format.isEmpty() ? "-" : m_imageInfo.format);
   m_imageSizeValue->setText(m_imageInfo.sizeBytes == 0 ? "-" : QString("%1 (%2)").arg(m_imageInfo.sizeBytes).arg(formatBytes(m_imageInfo.sizeBytes)));
 
+  m_supportScopeValue->setText(supportScopeSummary());
+  m_supportScopeValue->setToolTip("Primary targets: RAW/DD, E01, NTFS, FAT32, exFAT, EXT3, EXT4. ReFS/XFS are not currently targeted.");
+  m_currentPathValue->setText(m_currentLogicalPath.isEmpty() ? "/" : m_currentLogicalPath);
+
   if (m_selectedPartitionIndex >= 0 && m_selectedPartitionIndex < static_cast<int>(m_partitions.size())) {
     const auto &p = m_partitions[static_cast<size_t>(m_selectedPartitionIndex)];
     m_partitionValue->setText(QString("%1 [%2]").arg(p.identifier, p.description));
-    m_fsTypeValue->setText(p.fileSystemType.isEmpty() ? "Unknown" : p.fileSystemType);
+    const QString fsType = p.fileSystemType.isEmpty() ? "Unknown" : p.fileSystemType;
+    QString suffix;
+    if (isPrimarySupportedFileSystem(fsType)) {
+      suffix = " • primary target";
+    } else if (isKnownUnsupportedOrUnconfirmedFileSystem(fsType)) {
+      suffix = " • not currently targeted";
+    } else {
+      suffix = " • unconfirmed";
+    }
+    m_fsTypeValue->setText(fsType + suffix);
   } else {
     m_partitionValue->setText("-");
     m_fsTypeValue->setText("-");
   }
 }
+
+bool MainWindow::isPrimarySupportedFileSystem(const QString &fsType) const {
+  const QString upper = fsType.toUpper();
+  return upper.contains("NTFS") || upper.contains("FAT32") || upper.contains("EXFAT") ||
+         upper.contains("EXT3") || upper.contains("EXT4");
+}
+
+bool MainWindow::isKnownUnsupportedOrUnconfirmedFileSystem(const QString &fsType) const {
+  const QString upper = fsType.toUpper();
+  return upper.contains("REFS") || upper.contains("XFS");
+}
+
+QString MainWindow::supportScopeSummary() const {
+  return "RAW/DD, E01 • NTFS, FAT32, exFAT, EXT3, EXT4";
+}
+
+void MainWindow::applyColumnProfile(int profileIndex) {
+  if (!m_fileTable) return;
+
+  struct ColumnProfile {
+    std::array<int, FileEntryTableModel::ColumnCount> orderedColumns;
+    std::array<bool, FileEntryTableModel::ColumnCount> visible{};
+    int sortColumn{FileEntryTableModel::Name};
+    Qt::SortOrder sortOrder{Qt::AscendingOrder};
+  };
+
+  auto makeProfile = [](const std::array<int, FileEntryTableModel::ColumnCount> &order,
+                        std::initializer_list<int> shown,
+                        int sortColumn,
+                        Qt::SortOrder sortOrder) {
+    ColumnProfile profile;
+    profile.orderedColumns = order;
+    profile.sortColumn = sortColumn;
+    profile.sortOrder = sortOrder;
+    profile.visible.fill(false);
+    for (const int col : shown) {
+      if (col >= 0 && col < FileEntryTableModel::ColumnCount) profile.visible[static_cast<size_t>(col)] = true;
+    }
+    return profile;
+  };
+
+  const std::array<int, FileEntryTableModel::ColumnCount> triageOrder{
+      FileEntryTableModel::Name,      FileEntryTableModel::Extension,   FileEntryTableModel::Deleted,
+      FileEntryTableModel::Allocated, FileEntryTableModel::Size,        FileEntryTableModel::Modified,
+      FileEntryTableModel::LogicalPath, FileEntryTableModel::FileId,    FileEntryTableModel::Status,
+      FileEntryTableModel::Type,      FileEntryTableModel::Created,     FileEntryTableModel::EntryModified,
+      FileEntryTableModel::Accessed,  FileEntryTableModel::NtfsSiCreated, FileEntryTableModel::NtfsSiModified,
+      FileEntryTableModel::NtfsFnCreated, FileEntryTableModel::NtfsFnModified, FileEntryTableModel::Ads};
+
+  const std::array<int, FileEntryTableModel::ColumnCount> ntfsOrder{
+      FileEntryTableModel::Name,      FileEntryTableModel::Extension,   FileEntryTableModel::LogicalPath,
+      FileEntryTableModel::FileId,    FileEntryTableModel::Size,        FileEntryTableModel::Created,
+      FileEntryTableModel::Modified,  FileEntryTableModel::EntryModified, FileEntryTableModel::Accessed,
+      FileEntryTableModel::NtfsSiCreated, FileEntryTableModel::NtfsSiModified, FileEntryTableModel::NtfsFnCreated,
+      FileEntryTableModel::NtfsFnModified, FileEntryTableModel::Ads,     FileEntryTableModel::Deleted,
+      FileEntryTableModel::Allocated, FileEntryTableModel::Status,      FileEntryTableModel::Type};
+
+  const std::array<int, FileEntryTableModel::ColumnCount> extractionOrder{
+      FileEntryTableModel::Name,      FileEntryTableModel::Status,      FileEntryTableModel::Deleted,
+      FileEntryTableModel::Allocated, FileEntryTableModel::Size,        FileEntryTableModel::Modified,
+      FileEntryTableModel::LogicalPath, FileEntryTableModel::FileId,    FileEntryTableModel::Extension,
+      FileEntryTableModel::Type,      FileEntryTableModel::Created,     FileEntryTableModel::EntryModified,
+      FileEntryTableModel::Accessed,  FileEntryTableModel::NtfsSiCreated, FileEntryTableModel::NtfsSiModified,
+      FileEntryTableModel::NtfsFnCreated, FileEntryTableModel::NtfsFnModified, FileEntryTableModel::Ads};
+
+  const auto triageProfile = makeProfile(
+      triageOrder,
+      {FileEntryTableModel::Name, FileEntryTableModel::Extension, FileEntryTableModel::Deleted,
+       FileEntryTableModel::Allocated, FileEntryTableModel::Size, FileEntryTableModel::Modified,
+       FileEntryTableModel::LogicalPath, FileEntryTableModel::FileId, FileEntryTableModel::Status},
+      FileEntryTableModel::Modified,
+      Qt::DescendingOrder);
+
+  const auto ntfsProfile = makeProfile(
+      ntfsOrder,
+      {FileEntryTableModel::Name, FileEntryTableModel::Extension, FileEntryTableModel::LogicalPath,
+       FileEntryTableModel::FileId, FileEntryTableModel::Size, FileEntryTableModel::Created,
+       FileEntryTableModel::Modified, FileEntryTableModel::EntryModified, FileEntryTableModel::Accessed,
+       FileEntryTableModel::NtfsSiCreated, FileEntryTableModel::NtfsSiModified, FileEntryTableModel::NtfsFnCreated,
+       FileEntryTableModel::NtfsFnModified, FileEntryTableModel::Ads, FileEntryTableModel::Deleted,
+       FileEntryTableModel::Allocated},
+      FileEntryTableModel::NtfsSiModified,
+      Qt::DescendingOrder);
+
+  const auto extractionProfile = makeProfile(
+      extractionOrder,
+      {FileEntryTableModel::Name, FileEntryTableModel::Status, FileEntryTableModel::Deleted,
+       FileEntryTableModel::Allocated, FileEntryTableModel::Size, FileEntryTableModel::Modified,
+       FileEntryTableModel::LogicalPath, FileEntryTableModel::FileId, FileEntryTableModel::Extension},
+      FileEntryTableModel::Status,
+      Qt::AscendingOrder);
+
+  const ColumnProfile &profile = (profileIndex == 1) ? ntfsProfile : ((profileIndex == 2) ? extractionProfile : triageProfile);
+
+  for (int col = 0; col < FileEntryTableModel::ColumnCount; ++col) {
+    m_fileTable->setColumnHidden(col, !profile.visible[static_cast<size_t>(col)]);
+  }
+
+  QHeaderView *header = m_fileTable->horizontalHeader();
+  for (int targetVisual = 0; targetVisual < FileEntryTableModel::ColumnCount; ++targetVisual) {
+    const int logicalColumn = profile.orderedColumns[static_cast<size_t>(targetVisual)];
+    const int currentVisual = header->visualIndex(logicalColumn);
+    if (currentVisual != targetVisual && currentVisual >= 0) {
+      header->moveSection(currentVisual, targetVisual);
+    }
+  }
+
+  m_fileTable->sortByColumn(profile.sortColumn, profile.sortOrder);
+}
+
 
 void MainWindow::onOpenImage() {
   const auto path = QFileDialog::getOpenFileName(this, "Open Forensic Image");
@@ -497,6 +715,18 @@ void MainWindow::onPartitionSelected() {
   if (m_currentLogicalPath.isEmpty()) m_currentLogicalPath = "/";
   refreshEvidenceSummary();
 
+  const auto &selectedPartition = m_partitions[static_cast<size_t>(index)];
+  if (isKnownUnsupportedOrUnconfirmedFileSystem(selectedPartition.fileSystemType)) {
+    const QString warningKey = QString("%1:%2").arg(selectedPartition.identifier, selectedPartition.fileSystemType);
+    if (!m_warnedSupportScopePartitions.contains(warningKey)) {
+      m_warnedSupportScopePartitions.insert(warningKey);
+      const QString warning = QString("Scope notice: %1 is not a current support target; browsing uses generic TSK traversal.")
+                                  .arg(selectedPartition.fileSystemType);
+      statusBar()->showMessage(warning, 9000);
+      m_logManager.info(warning);
+    }
+  }
+
   auto *thread = new QThread(this);
   auto *worker = new workers::DirectoryListWorker(m_tskImage, m_partitions[index], m_currentLogicalPath);
   worker->moveToThread(thread);
@@ -514,9 +744,18 @@ void MainWindow::onPartitionSelected() {
             logOperationResult(m_logManager, result, "Directory listing");
             if (!result.succeeded() && !result.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
               QMessageBox::warning(this, "Directory listing", result.diagnostic.userMessage);
+            } else if (result.hasWarning()) {
+              statusBar()->showMessage(result.diagnostic.userMessage, 7000);
+              if (!result.diagnostic.detail.isEmpty()) {
+                m_logManager.info(QString("Directory listing warning detail: %1").arg(result.diagnostic.detail));
+              }
             }
             m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
             populateFiles(selectedGuard.data());
+            if (!m_pendingFileSelectionPath.isEmpty()) {
+              selectFileRowByPath(m_pendingFileSelectionPath);
+              m_pendingFileSelectionPath.clear();
+            }
             thread->quit();
           });
   connect(thread, &QThread::finished, worker, &QObject::deleteLater);
@@ -569,9 +808,8 @@ QByteArray MainWindow::readPreviewBytes(const domain::FileEntry &entry, QString 
     return out;
   }
 
-  constexpr size_t kPreviewBytes = 256;
-  out.resize(static_cast<int>(kPreviewBytes));
-  const auto got = tsk_fs_file_read(tskFile, 0, out.data(), kPreviewBytes, TSK_FS_FILE_READ_FLAG_NONE);
+  out.resize(kPreviewBytesLimit);
+  const auto got = tsk_fs_file_read(tskFile, 0, out.data(), static_cast<size_t>(kPreviewBytesLimit), TSK_FS_FILE_READ_FLAG_NONE);
   tsk_fs_file_close(tskFile);
   if (got < 0) {
     error = QString("Preview read failed: %1").arg(tsk_error_get());
@@ -596,17 +834,72 @@ void MainWindow::onFileSelected() {
 
   auto dt = [](const std::optional<QDateTime> &v) { return v ? v->toString(Qt::ISODate) : "N/A"; };
   const auto &ntfs = f->metadata.ntfs;
-  m_metadataPanel->setPlainText(QString("Path: %1\nFile ID/Inode: %2\nDeleted: %3\nDirectory: %4\nSize: %5\n"
-                                        "\nCreated: %6\nModified: %7\nEntry Modified: %8\nAccessed: %9\n"
-                                        "\nADS (NTFS only): %10")
-                                  .arg(f->fullPath)
-                                  .arg(f->inode)
-                                  .arg(f->isDeleted ? "yes" : "no")
-                                  .arg(f->isDirectory ? "yes" : "no")
-                                  .arg(f->sizeBytes)
-                                  .arg(dt(f->metadata.timestamps.created), dt(f->metadata.timestamps.modified),
-                                       dt(f->metadata.timestamps.entryModified), dt(f->metadata.timestamps.accessed))
-                                  .arg((ntfs && ntfs->hasAds) ? ntfs->adsNames.join(';') : "not available"));
+  const QString fsType = (m_selectedPartitionIndex >= 0 && m_selectedPartitionIndex < static_cast<int>(m_partitions.size()))
+                             ? m_partitions[static_cast<size_t>(m_selectedPartitionIndex)].fileSystemType
+                             : QString("Unknown");
+  const QString ntfsContext = ntfs ? "present" : "not present (non-NTFS or not exposed)";
+  const QString stateLine = QString("Allocated: %1 | Deleted: %2")
+                                .arg(f->isAllocated ? "yes" : "no")
+                                .arg(f->isDeleted ? "yes" : "no");
+  const QString rowStatus = m_fileModel->data(m_fileModel->index(source.row(), FileEntryTableModel::Status), Qt::DisplayRole).toString();
+  int relatedArtifacts = 0;
+  QStringList relatedNames;
+  for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
+    const auto *artifact = m_artifactModel->artifactAt(r);
+    if (!artifact) continue;
+    if (!pathsCorrelate(f->fullPath, artifact->sourceLogicalPath)) continue;
+    ++relatedArtifacts;
+    if (relatedNames.size() < 3) relatedNames.push_back(artifact->artifactName);
+  }
+  const QString relatedSummary = relatedArtifacts == 0 ? "none" : QString("%1 (%2)").arg(relatedArtifacts).arg(relatedNames.join(", "));
+  m_metadataPanel->setPlainText(
+      QString("[Core]\n"
+              "Path         : %1\n"
+              "Type         : %3\n"
+              "Size         : %5 bytes\n"
+              "State        : %6\n"
+              "Status       : %18\n"
+              "File ID/Inode: %4\n"
+              "Name         : %2\n"
+              "Related artf : %19\n"
+              "\n[Timeline - Generic MACB]\n"
+              "Modified     : %10\n"
+              "Created      : %9\n"
+              "Entry Mod    : %11\n"
+              "Accessed     : %12\n"
+              "\n[Filesystem Context]\n"
+              "Filesystem   : %7\n"
+              "NTFS fields  : %8\n"
+              "ADS (NTFS)   : %17\n"
+              "SI Modified  : %14\n"
+              "SI Created   : %13\n"
+              "FN Modified  : %16\n"
+              "FN Created   : %15")
+          .arg(f->fullPath)
+          .arg(f->name)
+          .arg(f->isDirectory ? "directory" : "file")
+          .arg(f->inode)
+          .arg(f->sizeBytes)
+          .arg(stateLine)
+          .arg(fsType)
+          .arg(ntfsContext)
+          .arg(dt(f->metadata.timestamps.created), dt(f->metadata.timestamps.modified),
+               dt(f->metadata.timestamps.entryModified), dt(f->metadata.timestamps.accessed),
+               ntfs ? dt(ntfs->standardInfo.created) : "N/A", ntfs ? dt(ntfs->standardInfo.modified) : "N/A",
+               ntfs ? dt(ntfs->fileNameInfo.created) : "N/A", ntfs ? dt(ntfs->fileNameInfo.modified) : "N/A")
+          .arg((ntfs && ntfs->hasAds) ? ntfs->adsNames.join(';') : "N/A")
+          .arg(rowStatus)
+          .arg(relatedSummary);
+
+
+  if (f->isDirectory) {
+    m_previewPanel->setPlainText("[Read-only bounded preview]\nState: directory entry (content preview not available)");
+    return;
+  }
+  if (f->sizeBytes == 0) {
+    m_previewPanel->setPlainText("[Read-only bounded preview]\nState: empty file (0 bytes)");
+    return;
+  }
 
   QString previewError;
   const QByteArray preview = readPreviewBytes(*f, previewError);
@@ -615,11 +908,20 @@ void MainWindow::onFileSelected() {
     return;
   }
   if (preview.isEmpty()) {
-    m_previewPanel->setPlainText("Preview unavailable (directory, empty file, or backend limitation).");
+    m_previewPanel->setPlainText("[Read-only bounded preview]\nState: backend-limited or unreadable preview");
     return;
   }
-  m_previewPanel->setPlainText(QString("HEX:\n%1\n\nTEXT:\n%2").arg(bytesToHex(preview), bytesToSafeText(preview)));
+  const bool isTruncated = preview.size() >= kPreviewBytesLimit;
+  const QString truncation = isTruncated ? "Yes (bounded preview)" : "No";
+  const QString signatureHint = detectSignatureHint(preview);
+  m_previewPanel->setPlainText(QString("[Read-only bounded preview]\nLimit: %1 bytes\nBytes returned: %2\nTruncated: %3\nSignature hint: %4\n\n[Hexdump]\n%5\n\n[Sanitized text]\n%6")
+                                   .arg(kPreviewBytesLimit)
+                                   .arg(preview.size())
+                                   .arg(truncation)
+                                   .arg(signatureHint)
+                                   .arg(bytesToHex(preview), bytesToSafeText(preview)));
 }
+
 
 void MainWindow::onExtractSelected() {
   if (!m_tskImage || m_selectedPartitionIndex < 0 || m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
@@ -767,6 +1069,7 @@ void MainWindow::loadDirectoryAtPath(const QString &path) {
   }
 
   m_currentLogicalPath = path;
+  refreshEvidenceSummary();
   auto *thread = new QThread(this);
   auto *worker = new workers::DirectoryListWorker(m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)], m_currentLogicalPath);
   worker->moveToThread(thread);
@@ -779,9 +1082,20 @@ void MainWindow::loadDirectoryAtPath(const QString &path) {
             logOperationResult(m_logManager, result, "Directory listing");
             if (!result.succeeded() && !result.diagnostic.userMessage.contains("cancel", Qt::CaseInsensitive)) {
               QMessageBox::warning(this, "Directory listing", result.diagnostic.userMessage);
+            } else if (result.hasWarning()) {
+              statusBar()->showMessage(result.diagnostic.userMessage, 7000);
+              if (!result.diagnostic.detail.isEmpty()) {
+                m_logManager.info(QString("Directory listing warning detail: %1").arg(result.diagnostic.detail));
+              }
             }
             m_files = result.succeeded() ? std::move(entries) : std::vector<domain::FileEntry>{};
             m_fileModel->setEntries(m_files);
+            if (!m_pendingFileSelectionPath.isEmpty()) {
+              if (!selectFileRowByPath(m_pendingFileSelectionPath)) {
+                m_logManager.info(QString("Pending file selection not found in current view: %1").arg(m_pendingFileSelectionPath));
+              }
+              m_pendingFileSelectionPath.clear();
+            }
             m_centerTabs->setCurrentIndex(0);
             thread->quit();
           });
@@ -790,6 +1104,23 @@ void MainWindow::loadDirectoryAtPath(const QString &path) {
 
   setBusy(true, QString("Enumerating %1 ...").arg(m_currentLogicalPath));
   thread->start();
+}
+
+bool MainWindow::selectFileRowByPath(const QString &fullPath) {
+  if (fullPath.isEmpty()) return false;
+  for (int row = 0; row < m_fileModel->rowCount(); ++row) {
+    const auto *entry = m_fileModel->entryAt(row);
+    if (!entry) continue;
+    if (entry->fullPath.compare(fullPath, Qt::CaseInsensitive) != 0) continue;
+    const QModelIndex sourceIndex = m_fileModel->index(row, FileEntryTableModel::Name);
+    const QModelIndex proxyIndex = m_fileProxy->mapFromSource(sourceIndex);
+    if (!proxyIndex.isValid()) return false;
+    m_centerTabs->setCurrentIndex(0);
+    m_fileTable->selectRow(proxyIndex.row());
+    m_fileTable->scrollTo(proxyIndex, QAbstractItemView::PositionAtCenter);
+    return true;
+  }
+  return false;
 }
 
 std::optional<domain::FileEntry> MainWindow::resolveFileEntryByPath(const QString &fullPath) const {
@@ -847,6 +1178,7 @@ void MainWindow::onScanArtifacts() {
                              "Selected partition does not appear to be a Windows filesystem. "
                              "Skipping resolver scan to avoid noisy false misses.");
     m_artifacts.clear();
+    m_warnedSupportScopePartitions.clear();
     m_artifactModel->setArtifacts({});
     return;
   }
@@ -902,11 +1234,13 @@ void MainWindow::onArtifactJumpToFileSystem() {
   const auto *artifact = m_artifactModel->artifactAt(source.row());
   if (!artifact) return;
   if (artifact->directoryTarget) {
+    m_pendingFileSelectionPath.clear();
     loadDirectoryAtPath(artifact->sourceLogicalPath);
     return;
   }
   const int slash = artifact->sourceLogicalPath.lastIndexOf('/');
   const auto parent = slash > 0 ? artifact->sourceLogicalPath.left(slash) : QString("/");
+  m_pendingFileSelectionPath = artifact->sourceLogicalPath;
   loadDirectoryAtPath(parent);
 }
 
