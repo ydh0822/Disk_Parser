@@ -45,6 +45,7 @@ private slots:
   void onArtifactExtractSelected();
   void onArtifactJumpToFileSystem();
   void onArtifactCopyPath();
+  void onCenterTabChanged(int index);
 
 private:
   void setupUi();
@@ -65,7 +66,9 @@ private:
   bool isKnownUnsupportedOrUnconfirmedFileSystem(const QString &fsType) const;
   QString supportScopeSummary() const;
   void applyColumnProfile(int profileIndex);
-  bool selectBestArtifactForFilePath(const QString &filePath, QString *selectionSummary = nullptr);
+  bool selectBestArtifactForFilePath(const QString &filePath,
+                                     QString *selectionSummary = nullptr,
+                                     bool activateArtifactTab = true);
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;

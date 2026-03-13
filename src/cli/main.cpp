@@ -1,7 +1,9 @@
 #include "ForensicImageExtractor/cli/CliOptions.h"
+#include "ForensicImageExtractor/cli/ArtifactJson.h"
 #include "ForensicImageExtractor/core/ImageReaderFactory.h"
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/forensics/ExtractionService.h"
+#include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
 #include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
 #include "ForensicImageExtractor/forensics/FileSystemHandle.h"
 #include "ForensicImageExtractor/forensics/VolumeEnumerator.h"
@@ -172,6 +174,38 @@ int runList(const RuntimeState &state, const fie::cli::ParsedOptions &opt, QText
   return ExitOk;
 }
 
+
+int runArtifactsScan(const RuntimeState &state,
+                     const fie::cli::ParsedOptions &opt,
+                     QTextStream &out,
+                     QString &error,
+                     QStringList &warnings) {
+  fie::domain::PartitionInfo partition;
+  if (!resolvePartition(opt.partition, state.partitions, partition)) {
+    error = QString("Unknown partition: %1").arg(opt.partition);
+    return ExitFailure;
+  }
+
+  fie::forensics::FileSystemHandle fs;
+  if (!fs.open(*state.adapter, partition, error)) {
+    return ExitFailure;
+  }
+
+  fie::forensics::FileSystemBrowser browser;
+  fie::forensics::ArtifactDiscoveryService discovery;
+  QStringList localWarnings;
+  auto artifacts = discovery.discover(
+      partition,
+      [&browser, &fs](const QString &path, QString &listError) {
+        return browser.listDirectory(fs, path, listError);
+      },
+      localWarnings);
+
+  warnings.append(localWarnings);
+  out << QJsonDocument(fie::cli::artifactsToJsonArray(std::move(artifacts))).toJson(QJsonDocument::Compact) << Qt::endl;
+  return ExitOk;
+}
+
 int runExtractOrCatalog(const RuntimeState &state,
                         const fie::cli::ParsedOptions &opt,
                         QTextStream &out,
@@ -303,6 +337,9 @@ int main(int argc, char *argv[]) {
   case fie::cli::CommandType::Extract:
   case fie::cli::CommandType::Catalog:
     rc = runExtractOrCatalog(state, opt, out, error, warnings);
+    break;
+  case fie::cli::CommandType::ArtifactsScan:
+    rc = runArtifactsScan(state, opt, out, error, warnings);
     break;
   }
 

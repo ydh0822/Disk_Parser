@@ -34,14 +34,14 @@ inline PathCorrelation pathCorrelation(const QString &entryPath, const QString &
 inline QString pathCorrelationTypeLabel(PathCorrelationType type) {
   switch (type) {
   case PathCorrelationType::Exact:
-    return "exact path";
+    return "Exact path";
   case PathCorrelationType::ArtifactAncestor:
-    return "artifact path is parent context";
+    return "Parent path (artifact ancestor)";
   case PathCorrelationType::ArtifactDescendant:
-    return "artifact path is child context";
+    return "Child path (artifact descendant)";
   case PathCorrelationType::None:
   default:
-    return "none";
+    return "No direct path correlation";
   }
 }
 

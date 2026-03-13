@@ -22,7 +22,15 @@ bool parseOverwrite(const QString &value, domain::OverwriteMode &mode) {
   return false;
 }
 
-bool parseCommand(const QString &name, CommandType &type) {
+bool parseCommand(const QStringList &positional, CommandType &type) {
+  if (positional.size() == 2 && positional[0] == "artifacts" && positional[1] == "scan") {
+    type = CommandType::ArtifactsScan;
+    return true;
+  }
+  if (positional.size() != 1) {
+    return false;
+  }
+  const QString name = positional.first();
   if (name == "inspect") {
     type = CommandType::Inspect;
     return true;
@@ -49,7 +57,8 @@ QString usageText() {
          "  fie_cli inspect --image <path> [--allow-path-fallback]\n"
          "  fie_cli list --image <path> --partition <id|index> [--path <dir>] [--allow-path-fallback]\n"
          "  fie_cli extract --image <path> --partition <id|index> --source <path> --dest <dir> [--overwrite skip|overwrite|versioned] [--md5] [--apply-host-timestamps] [--allow-path-fallback]\n"
-         "  fie_cli catalog --image <path> --partition <id|index> --source <path> --dest <dir> --catalog-out <file> --catalog-format json|csv [--overwrite skip|overwrite|versioned] [--md5] [--apply-host-timestamps] [--allow-path-fallback]";
+         "  fie_cli catalog --image <path> --partition <id|index> --source <path> --dest <dir> --catalog-out <file> --catalog-format json|csv [--overwrite skip|overwrite|versioned] [--md5] [--apply-host-timestamps] [--allow-path-fallback]\n"
+         "  fie_cli artifacts scan --image <path> --partition <id|index> [--allow-path-fallback]";
 }
 
 bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
@@ -79,7 +88,7 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   parser.addOption(md5Opt);
   parser.addOption(applyTsOpt);
   parser.addOption(fallbackOpt);
-  parser.addPositionalArgument("command", "inspect | list | extract | catalog");
+  parser.addPositionalArgument("command", "inspect | list | extract | catalog | artifacts scan");
 
   if (!parser.parse(args)) {
     error = parser.errorText();
@@ -87,7 +96,7 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   }
 
   const auto positional = parser.positionalArguments();
-  if (positional.size() != 1 || !parseCommand(positional.first(), out.command)) {
+  if (!parseCommand(positional, out.command)) {
     error = "Missing or invalid command";
     return false;
   }
@@ -110,6 +119,12 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
 
   if (out.imagePath.isEmpty()) {
     error = "--image is required";
+    return false;
+  }
+
+  if ((out.command == CommandType::List || out.command == CommandType::Extract ||
+       out.command == CommandType::Catalog || out.command == CommandType::ArtifactsScan) && out.partition.isEmpty()) {
+    error = "--partition is required";
     return false;
   }
 

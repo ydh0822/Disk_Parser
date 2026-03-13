@@ -28,6 +28,21 @@ int runCliOptionsTests() {
     return 1;
   }
 
+
+  error.clear();
+  if (!fie::cli::parseOptions({"artifacts", "scan", "--image", "disk.E01", "--partition", "p1"}, opt, error)) {
+    return 1;
+  }
+  if (opt.command != fie::cli::CommandType::ArtifactsScan || opt.partition != "p1") {
+    return 1;
+  }
+
+  error.clear();
+  if (fie::cli::parseOptions({"artifacts", "scan", "--image", "disk.E01", "--partition", ""}, opt, error) ||
+      error.isEmpty()) {
+    return 1;
+  }
+
   error.clear();
   if (fie::cli::parseOptions({"extract", "--image", "disk.E01", "--source", "/", "--dest", "out", "--overwrite", "invalid"}, opt, error) ||
       error != "Invalid overwrite mode") {

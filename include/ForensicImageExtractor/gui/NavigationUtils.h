@@ -30,6 +30,17 @@ inline PendingNavigationDecision pendingNavigationDecision(bool listingSucceeded
 
 
 // Classifies a pending file-selection attempt after a successful listing.
+
+// Returns a neutral metadata placeholder for an active tab when nothing is selected.
+// tabIndex follows MainWindow center tabs: 0=Files, 1=Artifacts.
+inline QString tabMetadataEmptySelectionPlaceholder(int tabIndex,
+                                                    bool hasFileSelection,
+                                                    bool hasArtifactSelection) {
+  if (tabIndex == 0 && !hasFileSelection) return "No file selected";
+  if (tabIndex == 1 && !hasArtifactSelection) return "No artifact selected";
+  return {};
+}
+
 inline PendingSelectionOutcome pendingSelectionOutcome(bool listingSucceeded,
                                                        const QString &pendingFileSelectionPath,
                                                        bool sourceEntryExists,
