@@ -33,6 +33,7 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QProgressBar>
+#include <QSignalBlocker>
 #include <QSet>
 #include <QSplitter>
 #include <QStandardItemModel>
@@ -133,6 +134,15 @@ void logOperationResult(fie::utils::LogManager &log, const fie::domain::Forensic
   } else {
     log.info(base + (result.diagnostic.detail.isEmpty() ? "" : QString(" detail=%1").arg(result.diagnostic.detail)));
   }
+}
+
+
+QString correlationContextLine(const QString &filePath, const QString &artifactPath) {
+  const auto correlation = pathCorrelation(filePath, artifactPath);
+  if (!correlation.correlated()) {
+    return QString("%1 [No direct path correlation]").arg(filePath);
+  }
+  return QString("%1 [%2]").arg(filePath, pathCorrelationTypeLabel(correlation.type));
 }
 
 QString bytesToSafeText(const QByteArray &bytes) {
@@ -341,6 +351,7 @@ void MainWindow::setupUi() {
   connect(m_partitionTree, &QTreeWidget::itemSelectionChanged, this, &MainWindow::onPartitionSelected);
   connect(m_fileTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::onFileSelected);
   connect(m_artifactTable->selectionModel(), &QItemSelectionModel::selectionChanged, this, &MainWindow::onArtifactSelectionChanged);
+  connect(m_centerTabs, &QTabWidget::currentChanged, this, &MainWindow::onCenterTabChanged);
   connect(m_nameFilterEdit, &QLineEdit::textChanged, m_fileProxy, &FileEntryFilterProxyModel::setNameContains);
   connect(m_deletedOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setDeletedOnly);
   connect(m_allocatedOnlyCheck, &QCheckBox::toggled, m_fileProxy, &FileEntryFilterProxyModel::setAllocatedOnly);
@@ -395,7 +406,7 @@ void MainWindow::setupUi() {
       loadDirectoryAtPath(parent.isEmpty() ? "/" : parent);
     } else if (chosen == relatedArtifact) {
       QString selectionSummary;
-      if (selectBestArtifactForFilePath(entry->fullPath, &selectionSummary)) {
+      if (selectBestArtifactForFilePath(entry->fullPath, &selectionSummary, true)) {
         statusBar()->showMessage(selectionSummary, 6000);
       } else {
         statusBar()->showMessage("No correlated artifact rows for selected file", 5000);
@@ -820,7 +831,11 @@ QByteArray MainWindow::readPreviewBytes(const domain::FileEntry &entry, QString 
 
 void MainWindow::onFileSelected() {
   const auto rows = m_fileTable->selectionModel()->selectedRows();
-  if (rows.isEmpty()) return;
+  if (rows.isEmpty()) {
+    const QString placeholder = tabMetadataEmptySelectionPlaceholder(m_centerTabs->currentIndex(), false, true);
+    if (!placeholder.isEmpty()) m_metadataPanel->setPlainText(placeholder);
+    return;
+  }
 
   const QModelIndex source = m_fileProxy->mapToSource(rows.first());
   const auto *f = m_fileModel->entryAt(source.row());
@@ -856,10 +871,12 @@ void MainWindow::onFileSelected() {
   }
   const QString relatedSummary = relatedArtifacts == 0
                                      ? "none"
-                                     : QString("%1 (best: %2; examples: %3)")
+                                     : QString("count=%1 | best=%2 | examples=%3")
                                            .arg(relatedArtifacts)
                                            .arg(bestCorrelationReason)
                                            .arg(relatedNames.join(", "));
+  selectBestArtifactForFilePath(f->fullPath, nullptr, false);
+
   m_metadataPanel->setPlainText(
       QString("[Core]\n"
               "Path         : %1\n"
@@ -869,7 +886,8 @@ void MainWindow::onFileSelected() {
               "Status       : %18\n"
               "File ID/Inode: %4\n"
               "Name         : %2\n"
-              "Related artf : %19\n"
+              "\n[Correlation]\n"
+              "Related artifacts : %19\n"
               "\n[Timeline - Generic MACB]\n"
               "Modified     : %10\n"
               "Created      : %9\n"
@@ -1153,8 +1171,11 @@ bool MainWindow::selectFileRowByPath(const QString &fullPath) {
     const QModelIndex proxyIndex = m_fileProxy->mapFromSource(sourceIndex);
     if (!proxyIndex.isValid()) return false;
     m_centerTabs->setCurrentIndex(0);
+    m_fileTable->clearSelection();
+    m_fileTable->setCurrentIndex(proxyIndex);
     m_fileTable->selectRow(proxyIndex.row());
     m_fileTable->scrollTo(proxyIndex, QAbstractItemView::PositionAtCenter);
+    m_fileTable->setFocus();
     return true;
   }
   return false;
@@ -1170,29 +1191,55 @@ bool MainWindow::sourceModelContainsPath(const QString &fullPath) const {
   return false;
 }
 
-bool MainWindow::selectBestArtifactForFilePath(const QString &filePath, QString *selectionSummary) {
+bool MainWindow::selectBestArtifactForFilePath(const QString &filePath,
+                                             QString *selectionSummary,
+                                             bool activateArtifactTab) {
   int bestRow = -1;
   int bestRank = 100;
   PathCorrelationType bestType = PathCorrelationType::None;
+  QString bestPath;
+  QString bestName;
   for (int r = 0; r < m_artifactModel->rowCount(); ++r) {
     const auto *artifact = m_artifactModel->artifactAt(r);
     if (!artifact) continue;
     const auto correlation = pathCorrelation(filePath, artifact->sourceLogicalPath);
     if (!correlation.correlated()) continue;
-    if (correlation.rank < bestRank) {
+
+    const bool betterRank = correlation.rank < bestRank;
+    const bool sameRankBetterTiebreak =
+        correlation.rank == bestRank &&
+        (QString::compare(artifact->sourceLogicalPath, bestPath, Qt::CaseInsensitive) < 0 ||
+         (QString::compare(artifact->sourceLogicalPath, bestPath, Qt::CaseInsensitive) == 0 &&
+          QString::compare(artifact->artifactName, bestName, Qt::CaseInsensitive) < 0));
+    if (betterRank || sameRankBetterTiebreak) {
       bestRank = correlation.rank;
       bestRow = r;
       bestType = correlation.type;
-      if (bestRank == 0) break;
+      bestPath = artifact->sourceLogicalPath;
+      bestName = artifact->artifactName;
     }
   }
 
-  if (bestRow < 0) return false;
-  m_centerTabs->setCurrentIndex(1);
+  if (bestRow < 0) {
+    if (!activateArtifactTab && m_artifactTable && m_artifactTable->selectionModel()) {
+      QSignalBlocker blocker(m_artifactTable->selectionModel());
+      m_artifactTable->clearSelection();
+    }
+    return false;
+  }
   const QModelIndex proxyRow = m_artifactProxy->mapFromSource(m_artifactModel->index(bestRow, 0));
   if (!proxyRow.isValid()) return false;
-  m_artifactTable->selectRow(proxyRow.row());
-  m_artifactTable->scrollTo(proxyRow, QAbstractItemView::PositionAtCenter);
+
+  if (activateArtifactTab) {
+    m_centerTabs->setCurrentIndex(1);
+    m_artifactTable->selectRow(proxyRow.row());
+    m_artifactTable->scrollTo(proxyRow, QAbstractItemView::PositionAtCenter);
+    m_artifactTable->setFocus();
+  } else {
+    QSignalBlocker blocker(m_artifactTable->selectionModel());
+    m_artifactTable->selectRow(proxyRow.row());
+  }
+
   if (selectionSummary) {
     const auto *best = m_artifactModel->artifactAt(bestRow);
     if (best) {
@@ -1296,38 +1343,76 @@ void MainWindow::onScanArtifacts() {
 void MainWindow::onArtifactSelectionChanged() {
   const auto rows = m_artifactTable->selectionModel()->selectedRows();
   if (rows.isEmpty()) {
-    m_metadataPanel->clear();
+    const QString placeholder = tabMetadataEmptySelectionPlaceholder(m_centerTabs->currentIndex(), true, false);
+    if (!placeholder.isEmpty()) {
+      m_metadataPanel->setPlainText(placeholder);
+    } else {
+      m_metadataPanel->clear();
+    }
     return;
   }
   const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
   const auto *artifact = m_artifactModel->artifactAt(source.row());
   if (!artifact) return;
 
-  QString selectedFileContext = "none";
+  QString selectedFileContext = "none selected";
   const auto fileRows = m_fileTable->selectionModel()->selectedRows();
   if (!fileRows.isEmpty()) {
     const QModelIndex fileSource = m_fileProxy->mapToSource(fileRows.first());
     const auto *entry = m_fileModel->entryAt(fileSource.row());
     if (entry) {
-      const auto correlation = pathCorrelation(entry->fullPath, artifact->sourceLogicalPath);
-      selectedFileContext = correlation.correlated()
-                                ? QString("%1 (%2)").arg(entry->fullPath, pathCorrelationTypeLabel(correlation.type))
-                                : QString("%1 (no direct path correlation)").arg(entry->fullPath);
+      selectedFileContext = correlationContextLine(entry->fullPath, artifact->sourceLogicalPath);
     }
   }
 
-  m_metadataPanel->setPlainText(QString("Artifact: %1\n"
-                                        "Category: %2\n"
-                                        "Profile: %3\n"
-                                        "Path: %4\n"
-                                        "Status: %5\n"
-                                        "Type: %6\n"
-                                        "Selected file context: %7\n"
-                                        "Notes: %8")
+  QString bestLoadedFileContext = "none in current directory";
+  int bestRank = 100;
+  QString bestPath;
+  for (int row = 0; row < m_fileModel->rowCount(); ++row) {
+    const auto *entry = m_fileModel->entryAt(row);
+    if (!entry) continue;
+    const auto correlation = pathCorrelation(entry->fullPath, artifact->sourceLogicalPath);
+    if (!correlation.correlated()) continue;
+    if (correlation.rank < bestRank ||
+        (correlation.rank == bestRank && QString::compare(entry->fullPath, bestPath, Qt::CaseInsensitive) < 0)) {
+      bestRank = correlation.rank;
+      bestPath = entry->fullPath;
+      bestLoadedFileContext = correlationContextLine(entry->fullPath, artifact->sourceLogicalPath);
+    }
+  }
+
+  m_metadataPanel->setPlainText(QString("[Artifact]\n"
+                                        "Name         : %1\n"
+                                        "Category     : %2\n"
+                                        "Profile      : %3\n"
+                                        "Path         : %4\n"
+                                        "Status       : %5\n"
+                                        "Target type  : %6\n"
+                                        "\n[Correlation Context]\n"
+                                        "Selected file: %7\n"
+                                        "Best loaded  : %8\n"
+                                        "\n[Notes]\n"
+                                        "%9")
                                 .arg(artifact->artifactName, artifact->category, artifact->profile,
                                      artifact->sourceLogicalPath, artifact->status,
-                                     artifact->directoryTarget ? "directory target" : "file target",
-                                     selectedFileContext, artifact->notes));
+                                     artifact->directoryTarget ? "directory" : "file",
+                                     selectedFileContext, bestLoadedFileContext,
+                                     artifact->notes.isEmpty() ? "-" : artifact->notes));
+}
+
+void MainWindow::onCenterTabChanged(int index) {
+  if (index == 1) {
+    const auto rows = m_artifactTable->selectionModel()->selectedRows();
+    if (!rows.isEmpty()) {
+      m_artifactTable->scrollTo(rows.first(), QAbstractItemView::PositionAtCenter);
+    }
+    onArtifactSelectionChanged();
+    return;
+  }
+
+  if (index == 0) {
+    onFileSelected();
+  }
 }
 
 void MainWindow::onArtifactJumpToFileSystem() {

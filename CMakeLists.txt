@@ -130,7 +130,10 @@ if(FIE_ENABLE_TESTS)
     tests/test_FileEntryTableVisualCues.cpp
     tests/test_CorrelationUtils.cpp
     tests/test_NavigationUtils.cpp
+    tests/test_ArtifactCorrelationFlow.cpp
+    tests/test_CliArtifactJson.cpp
     src/gui/FileEntryTableModel.cpp
+    src/gui/ArtifactTableModel.cpp
   )
   target_include_directories(fie_tests PRIVATE src)
   if(TARGET fie_workers)

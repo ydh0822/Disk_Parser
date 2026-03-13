@@ -27,6 +27,8 @@ int runFileEntryFilteringTests();
 int runFileEntryTableVisualCueTests();
 int runCorrelationUtilsTests();
 int runNavigationUtilsTests();
+int runArtifactCorrelationFlowTests();
+int runCliArtifactJsonTests();
 
 int main() {
   const int rc = runPathUtilsTests() + runTimestampSerializationTests() + runMetadataRecordTests() +
@@ -39,7 +41,7 @@ int main() {
                  runEndToEndSemanticsTests() + runCliOptionsTests() + runForensicEdgeCaseTests() +
                  runArtifactDiscoveryServiceTests() + runForensicOperationResultTests() + runWorkerResultSemanticsTests() +
                  runFileEntryFilteringTests() + runFileEntryTableVisualCueTests() + runCorrelationUtilsTests() +
-                 runNavigationUtilsTests();
+                 runNavigationUtilsTests() + runArtifactCorrelationFlowTests() + runCliArtifactJsonTests();
   if (rc == 0) {
     std::cout << "All tests passed\n";
   }

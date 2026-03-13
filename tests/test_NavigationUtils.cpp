@@ -4,6 +4,7 @@ int runNavigationUtilsTests() {
   using fie::gui::PendingSelectionOutcome;
   using fie::gui::pendingNavigationDecision;
   using fie::gui::pendingSelectionOutcome;
+  using fie::gui::tabMetadataEmptySelectionPlaceholder;
 
   const auto failedWithPending = pendingNavigationDecision(false, "/Users/Alice/NTUSER.DAT", "artifact context");
   if (failedWithPending.attemptFileSelection) return 1;
@@ -29,5 +30,10 @@ int runNavigationUtilsTests() {
   if (pendingSelectionOutcome(true, "/Users/Alice/NTUSER.DAT", true, true) != PendingSelectionOutcome::SelectedVisible) return 1;
   if (pendingSelectionOutcome(true, "/Users/Alice/NTUSER.DAT", true, false) != PendingSelectionOutcome::HiddenByFilters) return 1;
   if (pendingSelectionOutcome(true, "/Users/Alice/NTUSER.DAT", false, false) != PendingSelectionOutcome::NotFoundInLoadedDirectory) return 1;
+
+  if (tabMetadataEmptySelectionPlaceholder(0, true, false) != "") return 1;
+  if (tabMetadataEmptySelectionPlaceholder(1, false, true) != "") return 1;
+  if (tabMetadataEmptySelectionPlaceholder(0, false, true) != "No file selected") return 1;
+  if (tabMetadataEmptySelectionPlaceholder(1, true, false) != "No artifact selected") return 1;
   return 0;
 }

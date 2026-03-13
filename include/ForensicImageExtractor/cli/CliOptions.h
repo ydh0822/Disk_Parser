@@ -7,7 +7,7 @@
 
 namespace fie::cli {
 
-enum class CommandType { Inspect, List, Extract, Catalog };
+enum class CommandType { Inspect, List, Extract, Catalog, ArtifactsScan };
 
 struct ParsedOptions {
   CommandType command{CommandType::Inspect};
