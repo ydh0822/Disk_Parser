@@ -1,9 +1,13 @@
 #include "ForensicImageExtractor/cli/CliOptions.h"
 #include "ForensicImageExtractor/cli/ArtifactJson.h"
+#include "ForensicImageExtractor/cli/ArtifactTimelineJson.h"
 #include "ForensicImageExtractor/core/ImageReaderFactory.h"
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/forensics/ExtractionService.h"
 #include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
+#include "ForensicImageExtractor/forensics/ArtifactDetailProviders.h"
+#include "ForensicImageExtractor/forensics/ArtifactDataAccess.h"
+#include "ForensicImageExtractor/forensics/ArtifactTimelineService.h"
 #include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
 #include "ForensicImageExtractor/forensics/FileSystemHandle.h"
 #include "ForensicImageExtractor/forensics/VolumeEnumerator.h"
@@ -201,8 +205,71 @@ int runArtifactsScan(const RuntimeState &state,
       },
       localWarnings);
 
+  if (opt.includeArtifactDetails) {
+    fie::forensics::ArtifactDetailService detailService;
+    detailService.populate(
+        artifacts,
+        {
+            [&fs](const QString &path, QString &readError) {
+              return fie::forensics::readFileBytesByPath(fs, path, 1024 * 1024, readError);
+            },
+        },
+        localWarnings);
+  }
+
   warnings.append(localWarnings);
-  out << QJsonDocument(fie::cli::artifactsToJsonArray(std::move(artifacts))).toJson(QJsonDocument::Compact) << Qt::endl;
+  out << QJsonDocument(fie::cli::artifactsToJsonArray(std::move(artifacts), opt.includeArtifactDetails))
+             .toJson(QJsonDocument::Compact)
+      << Qt::endl;
+  return ExitOk;
+}
+
+int runArtifactsTimeline(const RuntimeState &state,
+                        const fie::cli::ParsedOptions &opt,
+                        QTextStream &out,
+                        QString &error,
+                        QStringList &warnings) {
+  fie::domain::PartitionInfo partition;
+  if (!resolvePartition(opt.partition, state.partitions, partition)) {
+    error = QString("Unknown partition: %1").arg(opt.partition);
+    return ExitFailure;
+  }
+
+  fie::forensics::FileSystemHandle fs;
+  if (!fs.open(*state.adapter, partition, error)) {
+    return ExitFailure;
+  }
+
+  fie::forensics::FileSystemBrowser browser;
+  fie::forensics::ArtifactDiscoveryService discovery;
+  QStringList localWarnings;
+  auto artifacts = discovery.discover(
+      partition,
+      [&browser, &fs](const QString &path, QString &listError) {
+        return browser.listDirectory(fs, path, listError);
+      },
+      localWarnings);
+
+  fie::forensics::ArtifactDetailService detailService;
+  detailService.populate(
+      artifacts,
+      {
+          [&fs](const QString &path, QString &readError) {
+            return fie::forensics::readFileBytesByPath(fs, path, 1024 * 1024, readError);
+          },
+      },
+      localWarnings);
+
+  fie::forensics::ArtifactTimelineService timelineService;
+  auto events = timelineService.buildEvents(artifacts);
+  warnings.append(localWarnings);
+
+  if (opt.outputFormat == "csv") {
+    out << fie::cli::artifactEventsToCsv(std::move(events)) << Qt::endl;
+  } else {
+    out << QJsonDocument(fie::cli::artifactEventsToJsonArray(std::move(events))).toJson(QJsonDocument::Compact)
+        << Qt::endl;
+  }
   return ExitOk;
 }
 
@@ -340,6 +407,9 @@ int main(int argc, char *argv[]) {
     break;
   case fie::cli::CommandType::ArtifactsScan:
     rc = runArtifactsScan(state, opt, out, error, warnings);
+    break;
+  case fie::cli::CommandType::ArtifactsTimeline:
+    rc = runArtifactsTimeline(state, opt, out, error, warnings);
     break;
   }
 

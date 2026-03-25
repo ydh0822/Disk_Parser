@@ -27,6 +27,10 @@ bool parseCommand(const QStringList &positional, CommandType &type) {
     type = CommandType::ArtifactsScan;
     return true;
   }
+  if (positional.size() == 2 && positional[0] == "artifacts" && positional[1] == "timeline") {
+    type = CommandType::ArtifactsTimeline;
+    return true;
+  }
   if (positional.size() != 1) {
     return false;
   }
@@ -58,7 +62,8 @@ QString usageText() {
          "  fie_cli list --image <path> --partition <id|index> [--path <dir>] [--allow-path-fallback]\n"
          "  fie_cli extract --image <path> --partition <id|index> --source <path> --dest <dir> [--overwrite skip|overwrite|versioned] [--md5] [--apply-host-timestamps] [--allow-path-fallback]\n"
          "  fie_cli catalog --image <path> --partition <id|index> --source <path> --dest <dir> --catalog-out <file> --catalog-format json|csv [--overwrite skip|overwrite|versioned] [--md5] [--apply-host-timestamps] [--allow-path-fallback]\n"
-         "  fie_cli artifacts scan --image <path> --partition <id|index> [--allow-path-fallback]";
+         "  fie_cli artifacts scan --image <path> --partition <id|index> [--details] [--allow-path-fallback]\n"
+         "  fie_cli artifacts timeline --image <path> --partition <id|index> [--output-format json|csv] [--allow-path-fallback]";
 }
 
 bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
@@ -76,6 +81,8 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   QCommandLineOption md5Opt("md5", "Compute MD5 in addition to SHA-256");
   QCommandLineOption applyTsOpt("apply-host-timestamps", "Apply host timestamps to extracted output");
   QCommandLineOption fallbackOpt("allow-path-fallback", "Allow path-based TSK compatibility fallback");
+  QCommandLineOption detailsOpt("details", "Include parser-backed artifact details for supported artifact files");
+  QCommandLineOption outputFormatOpt("output-format", "Output format (json|csv)", "format", "json");
 
   parser.addOption(imageOpt);
   parser.addOption(partitionOpt);
@@ -88,6 +95,8 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   parser.addOption(md5Opt);
   parser.addOption(applyTsOpt);
   parser.addOption(fallbackOpt);
+  parser.addOption(detailsOpt);
+  parser.addOption(outputFormatOpt);
   parser.addPositionalArgument("command", "inspect | list | extract | catalog | artifacts scan");
 
   if (!parser.parse(args)) {
@@ -109,6 +118,8 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   out.catalogPath = parser.value(catalogOutOpt).trimmed();
   out.catalogFormat = parser.value(catalogFormatOpt).trimmed().toLower();
   out.allowPathFallback = parser.isSet(fallbackOpt);
+  out.includeArtifactDetails = parser.isSet(detailsOpt);
+  out.outputFormat = parser.value(outputFormatOpt).trimmed().toLower();
   out.computeMd5 = parser.isSet(md5Opt);
   out.applyHostTimestamps = parser.isSet(applyTsOpt);
 
@@ -123,8 +134,14 @@ bool parseOptions(const QStringList &args, ParsedOptions &out, QString &error) {
   }
 
   if ((out.command == CommandType::List || out.command == CommandType::Extract ||
-       out.command == CommandType::Catalog || out.command == CommandType::ArtifactsScan) && out.partition.isEmpty()) {
+       out.command == CommandType::Catalog || out.command == CommandType::ArtifactsScan ||
+       out.command == CommandType::ArtifactsTimeline) && out.partition.isEmpty()) {
     error = "--partition is required";
+    return false;
+  }
+
+  if ((out.command == CommandType::ArtifactsTimeline) && out.outputFormat != "json" && out.outputFormat != "csv") {
+    error = "--output-format must be json or csv";
     return false;
   }
 

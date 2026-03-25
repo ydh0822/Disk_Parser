@@ -66,6 +66,8 @@ The repository now includes a minimal production-usable headless executable that
 - `list`: open image + filesystem + list directory entries
 - `extract`: extract a file/directory to destination root
 - `catalog`: run extraction and emit metadata catalog (JSON/CSV)
+- `artifacts scan`: resolver-driven artifact listing (optional parser-backed `--details` summary for supported artifact files)
+- `artifacts timeline`: normalized artifact-event timeline/triage output (JSON by default, optional CSV)
 
 ### Exit codes
 - `0`: success, no warnings
@@ -86,15 +88,33 @@ The repository now includes a minimal production-usable headless executable that
 
 # Extract and emit JSON catalog
 ./build/fie_cli catalog --image /evidence/case001.E01 --partition p1 --source /Users --dest /exports/case001 --catalog-out /exports/case001/catalog.json --catalog-format json
+
+# Artifact scan with conservative parser-backed details
+./build/fie_cli artifacts scan --image /evidence/case001.E01 --partition p1 --details
+
+# Build normalized artifact timeline in CSV
+./build/fie_cli artifacts timeline --image /evidence/case001.E01 --partition p1 --output-format csv
 ```
 
 `stderr` is reserved for deterministic `warning=` and `error=` lines; `stdout` emits machine-readable JSON payloads for successful command results.
 
 
 ## New GUI analysis workflows
-- **Artifacts tab**: scan known Windows artifact paths for the selected partition, review status/size/timestamp context, extract selected artifact files, copy logical paths, and jump directly into the file browser context. Non-Windows suppression uses a lightweight heuristic (filesystem type + `/Windows` probe) to avoid noisy scans.
+- **Artifacts tab**: scan remains resolver-first and fast; parser-backed detail summaries for supported artifact files (`$Recycle.Bin/$I*`, `.lnk`, `.pf`) now load lazily when an artifact row is selected (with in-session caching and stale-result suppression). Extract/copy/jump actions are unchanged. Non-Windows suppression uses a lightweight heuristic (filesystem type + `/Windows` probe) to avoid noisy scans.
+- **Browser SQLite coverage**: when built with optional SQLite support, Chrome/Edge `History` artifacts are parsed conservatively for visits/downloads and included in details + timeline events (`browser_visit`, `browser_download` / `browser_download_observed`).
+- **Registry recent activity v1**: focused read-only REGF hive parsing for `NTUSER.DAT` resolver artifacts with conservative detail extraction for `RunMRU`, `TypedPaths`, `RecentDocs`, and `UserAssist` (this is intentionally not a generic registry explorer/editor).
+- **System execution coverage v1**: focused read-only hive parsing for machine-level execution artifacts from `Amcache.hve` and `SYSTEM` BAM/DAM keys, surfaced through the same details + timeline pipeline.
+- **Artifacts tab** now includes an explicit **Analyze Artifacts** action for full-partition enrichment (user-triggered, background, cancellable) that populates the session cache and enables complete timeline/triage output without manually opening each row.
+- **Timeline tab**: lightweight triage timeline view that derives normalized forensic events from available artifact details, with deterministic timestamp ordering and explicit untimed rows, plus export actions (JSON/CSV) and compact analysis summary counts.
 - **Enhanced file triage**: tuned for faster analyst scanning with compact triage filters, lightweight column profiles (triage/NTFS detail/extraction-status), denser sectioned metadata, bounded read-only hexdump preview with signature/truncation context, restrained row-state cues (deleted/unallocated/ADS/status), richer artifact↔file correlation cues (explicit exact/parent/child reason labels), deterministic best-match artifact selection, clearer artifact-jump status messaging when filters hide a target row, and right-click actions for extract/path+inode copy/parent navigation/metadata export/artifact cross-navigation.
-- Scope remains read-only; this is a resolver-based Artifact Explorer MVP and deep parser views for SQLite/registry artifacts are intentionally deferred to future passes.
+- Scope remains read-only; parser-backed summaries/events are intentionally conservative and deterministic. Unsupported types and parser failures do not abort scans. Artifact detail panel state is explicit (`loading`, `unsupported`, `parsed`, `partial`, `failed`). In CLI `--details` and timeline JSON, absent optional fields are emitted as explicit `null` values.
+- Timeline normalization now also includes registry event families: `registry_run_mru`, `registry_typed_path`, `registry_recent_doc`, and `userassist_execution` (untimed rows are preserved when no trusted timestamp exists).
+- Timeline normalization also includes machine-level execution event families: `amcache_entry`, `bam_execution`, and `dam_execution`.
+- TypedPaths is intentionally emitted via the `windows.registry_recent_docs` provider (single NTUSER.DAT recent-activity provider path) to avoid split-provider ambiguity.
+- BAM/DAM parsing resolves active control set via `SYSTEM\\Select\\Current` when available and falls back conservatively to `ControlSet001` with a warning if resolution is unavailable/invalid.
+- Amcache coverage is intentionally narrow to `Root\\InventoryApplication`-style entries and is not a generic Amcache explorer/parser.
+- Workflow separation is explicit: resolver scan (fast), lazy row detail load (on-demand), and full analysis pass (explicit user action).
+- SQLite-backed parsing uses read-only temporary materialization for path-based analyzers; evidence image content is never modified.
 
 ## Build requirements
 - C++17
@@ -103,6 +123,7 @@ The repository now includes a minimal production-usable headless executable that
 - Qt6 Widgets (required only when `FIE_ENABLE_GUI=ON`)
 - The Sleuth Kit (TSK)
 - libewf (optional but required for E01 read support)
+- SQLite3 (optional; enables Chromium History detail/timeline coverage)
 
 ## Build
 ```powershell

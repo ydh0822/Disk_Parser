@@ -4,6 +4,9 @@
 #include "ForensicImageExtractor/core/TskImageHandleAdapter.h"
 #include "ForensicImageExtractor/domain/Models.h"
 #include "ForensicImageExtractor/gui/FileEntryTableModel.h"
+#include "ForensicImageExtractor/gui/ArtifactDetailSession.h"
+#include "ForensicImageExtractor/gui/ArtifactAnalysisSession.h"
+#include "ForensicImageExtractor/gui/ArtifactDetailsText.h"
 #include "ForensicImageExtractor/gui/ArtifactTableModel.h"
 #include "ForensicImageExtractor/utils/LogManager.h"
 
@@ -20,6 +23,7 @@ class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
+class QPushButton;
 class QTableView;
 class QStandardItemModel;
 class QTabWidget;
@@ -45,6 +49,9 @@ private slots:
   void onArtifactExtractSelected();
   void onArtifactJumpToFileSystem();
   void onArtifactCopyPath();
+  void onAnalyzeArtifacts();
+  void onExportTimelineJson();
+  void onExportTimelineCsv();
   void onCenterTabChanged(int index);
 
 private:
@@ -69,6 +76,16 @@ private:
   bool selectBestArtifactForFilePath(const QString &filePath,
                                      QString *selectionSummary = nullptr,
                                      bool activateArtifactTab = true);
+  void cancelArtifactDetailTask();
+  void invalidateArtifactDetailCache();
+  void requestArtifactDetails(const domain::ArtifactRecord &artifact);
+  void refreshArtifactMetadataPanel(const domain::ArtifactRecord &artifact,
+                                    const std::optional<domain::ArtifactDetails> &details,
+                                    const QString &detailStatusLine,
+                                    ArtifactDetailPanelState panelState);
+  std::optional<domain::ArtifactRecord> selectedArtifact() const;
+  void rebuildTimelineView();
+  QString analysisContextKey() const;
 
   std::shared_ptr<core::IImageReader> m_reader;
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
@@ -118,13 +135,25 @@ private:
   QTableView *m_extractStatusView{nullptr};
 
   QTableView *m_artifactTable{nullptr};
+  QTableView *m_timelineTable{nullptr};
   ArtifactTableModel *m_artifactModel{nullptr};
   ArtifactSortProxyModel *m_artifactProxy{nullptr};
   QStandardItemModel *m_extractStatusModel{nullptr};
+  QStandardItemModel *m_timelineModel{nullptr};
 
   QSet<QString> m_warnedSupportScopePartitions;
   QString m_pendingFileSelectionPath;
   QString m_pendingNavigationContext;
+  ArtifactDetailSessionCache m_artifactDetailCache;
+  std::function<void()> m_cancelArtifactDetailTask;
+  quint64 m_artifactDetailRequestId{0};
+  QString m_activeArtifactDetailKey;
+  quint64 m_artifactAnalysisRunId{0};
+  QString m_activeArtifactAnalysisContext;
+  ArtifactAnalysisSummary m_lastAnalysisSummary;
+  std::vector<domain::ArtifactEventRecord> m_timelineEvents;
+  QLabel *m_timelineSummaryLabel{nullptr};
+  QPushButton *m_analyzeArtifactsButton{nullptr};
 };
 
 } // namespace fie::gui

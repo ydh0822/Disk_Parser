@@ -70,7 +70,38 @@
 - `forensics::ArtifactDiscoveryService` is a domain/service layer that resolves Windows artifact paths from discovered `/Users/*` profiles plus system-wide locations.
 - The service consumes a directory-list callback so path resolution logic is testable without widget dependencies.
 - Output is `domain::ArtifactRecord` (category, artifact name, profile, logical path, status, size/timestamp, partition/filesystem context, notes).
-- `workers::ArtifactScanWorker` wires GUI async execution to the service and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
+- `forensics::ArtifactDetailService` provides parser-backed detail enrichment for supported artifact files via pluggable providers (`IArtifactDetailProvider`), currently:
+  - Recycle Bin `$I` summaries (original path, deletion timestamp, original size)
+  - Shell Link (`.lnk`) conservative summaries (target/relative/workdir/args and basic timestamps when present)
+  - Prefetch (`.pf`) conservative summaries (signature/version, executable name, run count, available last-run timestamps)
+  - Chromium-family `History` (Chrome/Edge) conservative SQLite-backed visits/downloads when SQLite support is available
+  - Focused read-only registry hive (`REGF`) traversal for `NTUSER.DAT` resolver artifacts:
+    - `RunMRU`
+    - `TypedPaths` (emitted under the same `windows.registry_recent_docs` provider path)
+    - `RecentDocs`
+    - `UserAssist`
+  - Focused read-only system-hive execution coverage:
+    - `Amcache.hve` (`Root\\InventoryApplication` only; narrow coverage)
+    - `SYSTEM` BAM/DAM (`<ActiveControlSet>\\Services\\{bam|dam}\\State\\UserSettings`, where active set is resolved from `Select\\Current` with conservative fallback)
+- Registry parsing scope is intentionally narrow and production-minded: only key/value traversal required for these artifacts is implemented; this milestone is not a generic registry explorer/browser.
+- Detail parsing is explicitly read-only and deterministic; each artifact detail result is `Parsed`, `Partial`, or `Failed`. Unsupported types remain unmodified and are not treated as errors.
+- CLI `fie_cli artifacts scan --details` remains explicit opt-in eager enrichment; absent optional parsed fields serialize as `null` in JSON detail payloads for deterministic machine interpretation.
+- Path-based artifact parsers (e.g., SQLite-backed browser History) use read-only temporary artifact materialization via `ArtifactMaterializationService` and never modify evidence content.
+- `forensics::ArtifactTimelineService` normalizes parser-backed details into compact `domain::ArtifactEventRecord` rows for triage/timeline workflows; events preserve source artifact context and do not fabricate timestamps.
+- Supported normalization sources:
+  - Recycle Bin `$I`: deletion event + original path/size context
+  - `.lnk`: created/modified/accessed events when timestamps exist
+  - `.pf`: last-run events (or untimed observed execution context when only non-time fields are available)
+  - Chromium History: `browser_visit`, `browser_download`, `browser_download_observed`
+  - Registry recent activity: `registry_run_mru`, `registry_typed_path`, `registry_recent_doc`, `userassist_execution`
+  - System-level execution: `amcache_entry`, `bam_execution`, `dam_execution`
+- `workers::ArtifactScanWorker` wires GUI async execution to resolver-only discovery and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
+- GUI parser-backed details are loaded via a dedicated on-demand worker (`workers::ArtifactDetailWorker`) per selected artifact row, not during scan.
+- GUI full-partition enrichment is handled by a dedicated explicit worker (`workers::ArtifactAnalysisWorker`) that processes supported present artifact files, populates the same session cache used by lazy loading, reports progress, and remains cancel-safe.
+- Stale-result suppression is explicit (selection/request-key matching) and in-flight detail work is cancel-safe across selection changes, rescans, and context switches.
+- GUI keeps a session-local in-memory artifact-detail cache keyed by `partitionIdentifier + logicalPath`; cache is invalidated on image/partition context changes and is never persisted.
+- GUI timeline view is a lightweight table derived from current artifact rows + loaded/cached details using `ArtifactTimelineService`; ordering is deterministic by timestamp with explicit untimed rows.
+- GUI exposes explicit triage export from the timeline view (JSON/CSV), aligned to the CLI timeline schema (`ArtifactTimelineJson`).
 - Missing resolver targets are represented as `ArtifactRecord.status="Missing"` (not warnings); warnings are reserved for traversal/listing failures and cancellation/error conditions.
 - `gui::ArtifactTableModel` and the MainWindow `Artifacts` tab provide scan/extract/copy/jump actions while reusing existing extraction/catalog plumbing.
 - Artifact scan entry is softly gated by a lightweight heuristic (partition FS type + `/Windows` root presence probe) to avoid noisy scans on clearly non-Windows targets; this is intentionally best-effort, not authoritative OS detection.
@@ -80,6 +111,7 @@
 - `FileEntryFilterProxyModel` now supports allocated-only, extension, path-content, and row-status filters in addition to existing deleted/type/ADS/name filters.
 - File table context menu adds examiner-centric actions: extract, copy logical path, jump parent, export row metadata, and open related artifact context; correlation is intentionally path-only (exact/ancestor/descendant), exposes reason labels in UI metadata/status, and keeps deterministic ranking (exact > ancestor > descendant) for analyst auditability.
 - Metadata shown in the browser remains sourced from existing `forensics::FileSystemBrowser` (TSK directory/meta fields + NTFS-specific enrichment where available).
+- Artifact selection metadata includes parser-backed details for supported artifact types via lazy loading, while unsupported artifacts cleanly fall back to resolver metadata + correlation context.
 
 ## GUI workspace refinements
 - Evidence summary fields (image path/format/size, selected partition, current path, filesystem type) are pinned at the top of the main workspace for analyst context retention.

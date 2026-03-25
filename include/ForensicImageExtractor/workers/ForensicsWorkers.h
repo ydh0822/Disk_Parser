@@ -6,6 +6,7 @@
 
 #include <QObject>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace fie::workers {
@@ -84,6 +85,53 @@ signals:
 private:
   std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
   fie::domain::PartitionInfo m_partition;
+  std::shared_ptr<forensics::CancellationToken> m_cancel;
+};
+
+class ArtifactDetailWorker : public QObject {
+  Q_OBJECT
+public:
+  ArtifactDetailWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
+                       fie::domain::PartitionInfo partition,
+                       fie::domain::ArtifactRecord artifact);
+
+public slots:
+  void process();
+  void requestCancel();
+
+signals:
+  void completed(QString cacheKey,
+                 fie::domain::ArtifactRecord artifact,
+                 fie::domain::ForensicOperationResult result);
+
+private:
+  std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
+  fie::domain::PartitionInfo m_partition;
+  fie::domain::ArtifactRecord m_artifact;
+  std::shared_ptr<forensics::CancellationToken> m_cancel;
+};
+
+class ArtifactAnalysisWorker : public QObject {
+  Q_OBJECT
+public:
+  ArtifactAnalysisWorker(std::shared_ptr<core::TskImageHandleAdapter> tskImage,
+                         fie::domain::PartitionInfo partition,
+                         std::vector<fie::domain::ArtifactRecord> artifacts);
+
+public slots:
+  void process();
+  void requestCancel();
+
+signals:
+  void progress(int processed, int total, QString sourcePath);
+  void completed(QString contextKey,
+                 std::vector<fie::domain::ArtifactRecord> analyzedArtifacts,
+                 fie::domain::ForensicOperationResult result);
+
+private:
+  std::shared_ptr<core::TskImageHandleAdapter> m_tskImage;
+  fie::domain::PartitionInfo m_partition;
+  std::vector<fie::domain::ArtifactRecord> m_artifacts;
   std::shared_ptr<forensics::CancellationToken> m_cancel;
 };
 
