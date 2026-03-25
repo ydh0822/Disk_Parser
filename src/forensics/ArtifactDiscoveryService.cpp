@@ -233,6 +233,7 @@ std::vector<domain::ArtifactRecord> ArtifactDiscoveryService::discover(
       {"Persistence", "Startup folder", "/Users/{user}/AppData/Roaming/Microsoft/Windows/Start Menu/Programs/Startup", true, true, {}},
       {"Persistence", "Scheduled Tasks", "/Windows/System32/Tasks", false, true, {}},
       {"Persistence", "Services hive resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
+      {"Execution", "BAM/DAM resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"External", "Recycle Bin", "/$Recycle.Bin", false, true, {}},
       {"External", "USB registry resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"Event/System", "EVTX root", "/Windows/System32/winevt/Logs", false, true, {}},

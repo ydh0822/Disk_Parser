@@ -33,7 +33,29 @@ int runCliOptionsTests() {
   if (!fie::cli::parseOptions({"artifacts", "scan", "--image", "disk.E01", "--partition", "p1"}, opt, error)) {
     return 1;
   }
-  if (opt.command != fie::cli::CommandType::ArtifactsScan || opt.partition != "p1") {
+  if (opt.command != fie::cli::CommandType::ArtifactsScan || opt.partition != "p1" || opt.includeArtifactDetails) {
+    return 1;
+  }
+
+  error.clear();
+  if (!fie::cli::parseOptions({"artifacts", "scan", "--image", "disk.E01", "--partition", "p1", "--details"}, opt, error)) {
+    return 1;
+  }
+  if (!opt.includeArtifactDetails) {
+    return 1;
+  }
+
+  error.clear();
+  if (!fie::cli::parseOptions({"artifacts", "timeline", "--image", "disk.E01", "--partition", "p1", "--output-format", "csv"}, opt, error)) {
+    return 1;
+  }
+  if (opt.command != fie::cli::CommandType::ArtifactsTimeline || opt.outputFormat != "csv") {
+    return 1;
+  }
+
+  error.clear();
+  if (fie::cli::parseOptions({"artifacts", "timeline", "--image", "disk.E01", "--partition", "p1", "--output-format", "xml"}, opt, error) ||
+      error != "--output-format must be json or csv") {
     return 1;
   }
 

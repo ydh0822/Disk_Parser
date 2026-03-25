@@ -93,6 +93,108 @@ struct FileEntry {
 };
 
 
+enum class ArtifactParseState {
+  Unsupported,
+  Parsed,
+  Partial,
+  Failed,
+};
+
+struct ArtifactDetails {
+  QString provider;
+  ArtifactParseState state{ArtifactParseState::Unsupported};
+  QString summary;
+  QString error;
+  QStringList warnings;
+
+  // Recycle Bin $I
+  QString originalPath;
+  std::optional<QDateTime> deletionTimestamp;
+  std::optional<quint64> originalSizeBytes;
+
+  // LNK
+  QString targetPath;
+  QString workingDirectory;
+  QString commandLineArguments;
+  QString relativePath;
+  std::optional<QDateTime> createdTimestamp;
+  std::optional<QDateTime> modifiedTimestamp;
+  std::optional<QDateTime> accessedTimestamp;
+
+  // Prefetch
+  QString executableName;
+  std::optional<int> formatVersion;
+  std::optional<quint32> runCount;
+  std::vector<QDateTime> lastRunTimestamps;
+
+  struct BrowserVisit {
+    std::optional<QDateTime> timestamp;
+    QString url;
+    QString title;
+    std::optional<quint32> visitCount;
+  };
+
+  struct BrowserDownload {
+    std::optional<QDateTime> timestamp;
+    QString url;
+    QString targetPath;
+  };
+
+  std::vector<BrowserVisit> browserVisits;
+  std::vector<BrowserDownload> browserDownloads;
+
+  struct RegistryRunMruEntry {
+    QString valueName;
+    QString command;
+    std::optional<int> mruPosition;
+  };
+
+  struct RegistryTypedPathEntry {
+    QString valueName;
+    QString path;
+  };
+
+  struct RegistryRecentDocEntry {
+    QString valueName;
+    QString documentName;
+    QString extensionGroup;
+    std::optional<int> mruPosition;
+  };
+
+  struct RegistryUserAssistEntry {
+    QString encodedName;
+    QString decodedName;
+    std::optional<quint32> runCount;
+    std::optional<QDateTime> lastExecution;
+  };
+
+  std::vector<RegistryRunMruEntry> registryRunMruEntries;
+  std::vector<RegistryTypedPathEntry> registryTypedPathEntries;
+  std::vector<RegistryRecentDocEntry> registryRecentDocEntries;
+  std::vector<RegistryUserAssistEntry> registryUserAssistEntries;
+
+  struct AmcacheEntry {
+    QString programPath;
+    QString fileName;
+    QString sha1;
+    QString publisher;
+    QString productName;
+    QString version;
+    std::optional<QDateTime> firstSeenTimestamp;
+    std::optional<QDateTime> installTimestamp;
+  };
+
+  struct BamDamEntry {
+    QString source; // bam or dam
+    QString sid;
+    QString executablePath;
+    std::optional<QDateTime> lastExecutionTimestamp;
+  };
+
+  std::vector<AmcacheEntry> amcacheEntries;
+  std::vector<BamDamEntry> bamDamEntries;
+};
+
 struct ArtifactRecord {
   QString category;
   QString artifactName;
@@ -105,6 +207,28 @@ struct ArtifactRecord {
   QString partitionIdentifier;
   QString fileSystemType;
   QString notes;
+  std::optional<ArtifactDetails> details;
+};
+
+struct ArtifactEventField {
+  QString key;
+  std::optional<QString> value;
+};
+
+struct ArtifactEventRecord {
+  std::optional<QDateTime> timestamp;
+  QString eventType;
+  QString category;
+  QString artifactName;
+  QString profile;
+  QString sourceLogicalPath;
+  QString partitionIdentifier;
+  QString fileSystemType;
+  QString parserProvider;
+  ArtifactParseState parseState{ArtifactParseState::Unsupported};
+  QString summary;
+  QString note;
+  std::vector<ArtifactEventField> fields;
 };
 
 enum class OverwriteMode { SkipExisting, Overwrite, VersionedCopy };
@@ -169,7 +293,9 @@ Q_DECLARE_METATYPE(fie::domain::PartitionInfo)
 Q_DECLARE_METATYPE(fie::domain::FileEntry)
 Q_DECLARE_METATYPE(fie::domain::ExtractionResult)
 Q_DECLARE_METATYPE(fie::domain::ArtifactRecord)
+Q_DECLARE_METATYPE(fie::domain::ArtifactEventRecord)
 Q_DECLARE_METATYPE(std::vector<fie::domain::PartitionInfo>)
 Q_DECLARE_METATYPE(std::vector<fie::domain::FileEntry>)
 Q_DECLARE_METATYPE(std::vector<fie::domain::ExtractionResult>)
 Q_DECLARE_METATYPE(std::vector<fie::domain::ArtifactRecord>)
+Q_DECLARE_METATYPE(std::vector<fie::domain::ArtifactEventRecord>)

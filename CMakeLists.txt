@@ -18,6 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core)
 find_package(Qt6 COMPONENTS Widgets)
 find_package(TSK)
 find_package(LIBEWF)
+find_package(SQLite3)
 
 add_library(fie_core
   src/core/ImageReaderFactory.cpp
@@ -35,6 +36,11 @@ add_library(fie_core
   src/forensics/NtfsBrowser.cpp
   src/forensics/ExtractionService.cpp
   src/forensics/ArtifactDiscoveryService.cpp
+  src/forensics/ArtifactDetailProviders.cpp
+  src/forensics/ArtifactTimelineService.cpp
+  src/forensics/ArtifactDataAccess.cpp
+  src/forensics/ArtifactMaterializationService.cpp
+  src/forensics/RegistryHive.cpp
   src/utils/Error.cpp
   src/utils/LogManager.cpp
   src/utils/PathUtils.cpp
@@ -60,6 +66,11 @@ endif()
 if(LIBEWF_FOUND)
   target_compile_definitions(fie_core PUBLIC FIE_HAS_LIBEWF=1)
   target_link_libraries(fie_core PUBLIC LIBEWF::libewf)
+endif()
+
+if(SQLite3_FOUND)
+  target_compile_definitions(fie_core PUBLIC FIE_HAS_SQLITE=1)
+  target_link_libraries(fie_core PUBLIC SQLite::SQLite3)
 endif()
 
 if(MSVC)
@@ -132,6 +143,14 @@ if(FIE_ENABLE_TESTS)
     tests/test_NavigationUtils.cpp
     tests/test_ArtifactCorrelationFlow.cpp
     tests/test_CliArtifactJson.cpp
+    tests/test_ArtifactDetailProviders.cpp
+    tests/test_ArtifactDetailsText.cpp
+    tests/test_ArtifactDetailSession.cpp
+    tests/test_ArtifactTimelineService.cpp
+    tests/test_ArtifactAnalysisSession.cpp
+    tests/test_BrowserHistoryProvider.cpp
+    tests/test_RegistryRecentActivity.cpp
+    tests/test_SystemExecutionProviders.cpp
     src/gui/FileEntryTableModel.cpp
     src/gui/ArtifactTableModel.cpp
   )

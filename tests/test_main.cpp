@@ -29,6 +29,14 @@ int runCorrelationUtilsTests();
 int runNavigationUtilsTests();
 int runArtifactCorrelationFlowTests();
 int runCliArtifactJsonTests();
+int runArtifactDetailProviderTests();
+int runArtifactDetailsTextTests();
+int runArtifactDetailSessionTests();
+int runArtifactTimelineServiceTests();
+int runArtifactAnalysisSessionTests();
+int runBrowserHistoryProviderTests();
+int runRegistryRecentActivityTests();
+int runSystemExecutionProviderTests();
 
 int main() {
   const int rc = runPathUtilsTests() + runTimestampSerializationTests() + runMetadataRecordTests() +
@@ -41,7 +49,11 @@ int main() {
                  runEndToEndSemanticsTests() + runCliOptionsTests() + runForensicEdgeCaseTests() +
                  runArtifactDiscoveryServiceTests() + runForensicOperationResultTests() + runWorkerResultSemanticsTests() +
                  runFileEntryFilteringTests() + runFileEntryTableVisualCueTests() + runCorrelationUtilsTests() +
-                 runNavigationUtilsTests() + runArtifactCorrelationFlowTests() + runCliArtifactJsonTests();
+                 runNavigationUtilsTests() + runArtifactCorrelationFlowTests() + runCliArtifactJsonTests() +
+                 runArtifactDetailProviderTests() + runArtifactDetailsTextTests() +
+                 runArtifactDetailSessionTests() + runArtifactTimelineServiceTests() +
+                 runArtifactAnalysisSessionTests() + runBrowserHistoryProviderTests() +
+                 runRegistryRecentActivityTests() + runSystemExecutionProviderTests();
   if (rc == 0) {
     std::cout << "All tests passed\n";
   }

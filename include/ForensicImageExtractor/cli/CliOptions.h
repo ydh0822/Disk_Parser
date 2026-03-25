@@ -7,7 +7,7 @@
 
 namespace fie::cli {
 
-enum class CommandType { Inspect, List, Extract, Catalog, ArtifactsScan };
+enum class CommandType { Inspect, List, Extract, Catalog, ArtifactsScan, ArtifactsTimeline };
 
 struct ParsedOptions {
   CommandType command{CommandType::Inspect};
@@ -19,6 +19,8 @@ struct ParsedOptions {
   QString catalogPath;
   QString catalogFormat{"json"};
   bool allowPathFallback{false};
+  bool includeArtifactDetails{false};
+  QString outputFormat{"json"};
   domain::OverwriteMode overwriteMode{domain::OverwriteMode::SkipExisting};
   bool computeMd5{false};
   bool applyHostTimestamps{false};

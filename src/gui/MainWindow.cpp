@@ -1,11 +1,16 @@
 #include "ForensicImageExtractor/gui/MainWindow.h"
 #include "ForensicImageExtractor/gui/CorrelationUtils.h"
+#include "ForensicImageExtractor/gui/ArtifactDetailSession.h"
+#include "ForensicImageExtractor/gui/ArtifactAnalysisSession.h"
+#include "ForensicImageExtractor/gui/ArtifactDetailsText.h"
 #include "ForensicImageExtractor/gui/NavigationUtils.h"
 
 #include "ForensicImageExtractor/core/ImageReaderFactory.h"
+#include "ForensicImageExtractor/cli/ArtifactTimelineJson.h"
 #include "ForensicImageExtractor/utils/MetadataFactory.h"
 #include "ForensicImageExtractor/utils/MetadataSerializerCsv.h"
 #include "ForensicImageExtractor/utils/MetadataSerializerJson.h"
+#include "ForensicImageExtractor/forensics/ArtifactTimelineService.h"
 #include "ForensicImageExtractor/workers/ExtractionWorker.h"
 #include "ForensicImageExtractor/workers/ForensicsWorkers.h"
 #include "ForensicImageExtractor/forensics/FileSystemBrowser.h"
@@ -154,6 +159,7 @@ QString bytesToSafeText(const QByteArray &bytes) {
   }
   return out;
 }
+
 } // namespace
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -275,10 +281,12 @@ void MainWindow::setupUi() {
   auto *artifactButtons = new QWidget(artifactTab);
   auto *artifactButtonsLayout = new QHBoxLayout(artifactButtons);
   auto *scanArtifactsButton = new QPushButton("Refresh / Re-scan", artifactButtons);
+  m_analyzeArtifactsButton = new QPushButton("Analyze Artifacts", artifactButtons);
   auto *extractArtifactButton = new QPushButton("Extract selected", artifactButtons);
   auto *jumpArtifactButton = new QPushButton("Jump to file system", artifactButtons);
   auto *copyArtifactPathButton = new QPushButton("Copy logical path", artifactButtons);
   artifactButtonsLayout->addWidget(scanArtifactsButton);
+  artifactButtonsLayout->addWidget(m_analyzeArtifactsButton);
   artifactButtonsLayout->addWidget(extractArtifactButton);
   artifactButtonsLayout->addWidget(jumpArtifactButton);
   artifactButtonsLayout->addWidget(copyArtifactPathButton);
@@ -295,13 +303,40 @@ void MainWindow::setupUi() {
   m_artifactTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
   artifactLayout->addWidget(m_artifactTable, 1);
 
+  auto *timelineTab = new QWidget(m_centerTabs);
+  auto *timelineLayout = new QVBoxLayout(timelineTab);
+  auto *timelineButtons = new QWidget(timelineTab);
+  auto *timelineButtonsLayout = new QHBoxLayout(timelineButtons);
+  auto *exportTimelineJsonButton = new QPushButton("Export Timeline JSON", timelineButtons);
+  auto *exportTimelineCsvButton = new QPushButton("Export Timeline CSV", timelineButtons);
+  m_timelineSummaryLabel = new QLabel("Analysis summary | artifacts=0 analyzed=0 parsed=0 partial=0 failed=0 unsupported=0 | events=0 [none]", timelineButtons);
+  m_timelineSummaryLabel->setWordWrap(true);
+  timelineButtonsLayout->addWidget(exportTimelineJsonButton);
+  timelineButtonsLayout->addWidget(exportTimelineCsvButton);
+  timelineButtonsLayout->addWidget(m_timelineSummaryLabel, 1);
+  timelineLayout->addWidget(timelineButtons);
+  m_timelineModel = new QStandardItemModel(this);
+  m_timelineModel->setHorizontalHeaderLabels(
+      {"Timestamp", "Event Type", "Artifact", "Profile", "Source Path", "Parser", "Parse State", "Summary"});
+  m_timelineTable = new QTableView(timelineTab);
+  m_timelineTable->setModel(m_timelineModel);
+  m_timelineTable->setSortingEnabled(true);
+  m_timelineTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+  m_timelineTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  m_timelineTable->horizontalHeader()->setStretchLastSection(true);
+  timelineLayout->addWidget(m_timelineTable, 1);
+
   m_centerTabs->addTab(m_fileTable, "Files");
   m_centerTabs->addTab(artifactTab, "Artifacts");
+  m_centerTabs->addTab(timelineTab, "Timeline");
 
   connect(scanArtifactsButton, &QPushButton::clicked, this, &MainWindow::onScanArtifacts);
+  connect(m_analyzeArtifactsButton, &QPushButton::clicked, this, &MainWindow::onAnalyzeArtifacts);
   connect(extractArtifactButton, &QPushButton::clicked, this, &MainWindow::onArtifactExtractSelected);
   connect(jumpArtifactButton, &QPushButton::clicked, this, &MainWindow::onArtifactJumpToFileSystem);
   connect(copyArtifactPathButton, &QPushButton::clicked, this, &MainWindow::onArtifactCopyPath);
+  connect(exportTimelineJsonButton, &QPushButton::clicked, this, &MainWindow::onExportTimelineJson);
+  connect(exportTimelineCsvButton, &QPushButton::clicked, this, &MainWindow::onExportTimelineCsv);
 
   auto *rightPanel = new QWidget(mainSplitter);
   auto *rightLayout = new QVBoxLayout(rightPanel);
@@ -623,6 +658,12 @@ void MainWindow::applyColumnProfile(int profileIndex) {
 
 
 void MainWindow::onOpenImage() {
+  if (m_cancelCurrentTask) m_cancelCurrentTask();
+  cancelArtifactDetailTask();
+  m_artifactAnalysisRunId = 0;
+  m_activeArtifactAnalysisContext.clear();
+  invalidateArtifactDetailCache();
+
   const auto path = QFileDialog::getOpenFileName(this, "Open Forensic Image");
   if (path.isEmpty()) return;
 
@@ -699,6 +740,12 @@ void MainWindow::populatePartitions() {
 }
 
 void MainWindow::onPartitionSelected() {
+  if (m_cancelCurrentTask) m_cancelCurrentTask();
+  cancelArtifactDetailTask();
+  m_artifactAnalysisRunId = 0;
+  m_activeArtifactAnalysisContext.clear();
+  invalidateArtifactDetailCache();
+
   if (!m_tskImage || !m_tskImage->isOpen()) return;
   const auto items = m_partitionTree->selectedItems();
   if (items.isEmpty()) return;
@@ -1294,6 +1341,12 @@ bool MainWindow::isLikelyWindowsPartition() const {
 }
 
 void MainWindow::onScanArtifacts() {
+  if (m_cancelCurrentTask) m_cancelCurrentTask();
+  cancelArtifactDetailTask();
+  m_artifactAnalysisRunId = 0;
+  m_activeArtifactAnalysisContext.clear();
+  invalidateArtifactDetailCache();
+
   if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
       m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
     QMessageBox::information(this, "Artifacts", "Select a partition first.");
@@ -1307,6 +1360,7 @@ void MainWindow::onScanArtifacts() {
     m_artifacts.clear();
     m_warnedSupportScopePartitions.clear();
     m_artifactModel->setArtifacts({});
+    rebuildTimelineView();
     return;
   }
 
@@ -1331,6 +1385,7 @@ void MainWindow::onScanArtifacts() {
             }
             m_artifacts = std::move(artifacts);
             m_artifactModel->setArtifacts(m_artifacts);
+            rebuildTimelineView();
             m_centerTabs->setCurrentIndex(1);
             thread->quit();
           });
@@ -1340,9 +1395,113 @@ void MainWindow::onScanArtifacts() {
   thread->start();
 }
 
+QString MainWindow::analysisContextKey() const {
+  if (m_selectedPartitionIndex < 0 || m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    return {};
+  }
+  const auto &partition = m_partitions[static_cast<size_t>(m_selectedPartitionIndex)];
+  return QString("%1|%2").arg(partition.identifier.trimmed().toLower(), partition.fileSystemType.trimmed().toLower());
+}
+
+void MainWindow::onAnalyzeArtifacts() {
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    QMessageBox::information(this, "Analyze Artifacts", "Select a partition and run artifact scan first.");
+    return;
+  }
+  if (m_artifacts.empty()) {
+    QMessageBox::information(this, "Analyze Artifacts", "No artifact rows available. Run artifact scan first.");
+    return;
+  }
+
+  cancelArtifactDetailTask();
+  const QString contextKey = analysisContextKey();
+  auto *thread = new QThread(this);
+  auto *worker = new workers::ArtifactAnalysisWorker(
+      m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)], m_artifacts);
+  worker->moveToThread(thread);
+  QPointer<workers::ArtifactAnalysisWorker> workerGuard(worker);
+  m_cancelCurrentTask = [workerGuard]() {
+    if (workerGuard) QMetaObject::invokeMethod(workerGuard, "requestCancel", Qt::QueuedConnection);
+  };
+
+  const quint64 runId = ++m_artifactAnalysisRunId;
+  m_activeArtifactAnalysisContext = contextKey;
+  connect(thread, &QThread::started, worker, &workers::ArtifactAnalysisWorker::process);
+  connect(worker, &workers::ArtifactAnalysisWorker::progress, this,
+          [this](int processed, int total, const QString &path) {
+            statusBar()->showMessage(QString("Analyzing artifacts %1/%2: %3").arg(processed).arg(total).arg(path));
+          });
+  connect(worker, &workers::ArtifactAnalysisWorker::completed, this,
+          [this, thread, runId](const QString &context,
+                                std::vector<domain::ArtifactRecord> analyzedArtifacts,
+                                const domain::ForensicOperationResult &result) {
+            setBusy(false);
+            const QString currentContext = analysisContextKey();
+            if (!shouldApplyAnalysisResult(m_artifactAnalysisRunId, m_activeArtifactAnalysisContext, currentContext,
+                                           runId, context)) {
+              thread->quit();
+              return;
+            }
+
+            if (!result.succeeded() && result.diagnostic.reason != "cancelled") {
+              QMessageBox::warning(this, "Analyze Artifacts", result.diagnostic.userMessage);
+            }
+
+            for (const auto &artifact : analyzedArtifacts) {
+              if (!shouldAnalyzeArtifact(artifact)) continue;
+              m_artifactDetailCache.put(artifactDetailCacheKey(artifact), artifact.details);
+            }
+            rebuildTimelineView();
+            if (m_centerTabs) m_centerTabs->setCurrentIndex(2);
+            m_artifactAnalysisRunId = 0;
+            m_activeArtifactAnalysisContext.clear();
+            thread->quit();
+          });
+
+  connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+  connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+  setBusy(true, "Analyzing parser-backed artifact details...");
+  thread->start();
+}
+
+void MainWindow::onExportTimelineJson() {
+  if (m_timelineEvents.empty()) {
+    QMessageBox::information(this, "Export Timeline", "No timeline events to export.");
+    return;
+  }
+  const auto path = QFileDialog::getSaveFileName(this, "Export timeline JSON", {}, "JSON (*.json)");
+  if (path.isEmpty()) return;
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QMessageBox::warning(this, "Export Timeline", "Failed to open output file.");
+    return;
+  }
+  const auto bytes = QJsonDocument(fie::cli::artifactEventsToJsonArray(m_timelineEvents)).toJson(QJsonDocument::Indented);
+  file.write(bytes);
+  statusBar()->showMessage(QString("Timeline JSON exported: %1").arg(path), 6000);
+}
+
+void MainWindow::onExportTimelineCsv() {
+  if (m_timelineEvents.empty()) {
+    QMessageBox::information(this, "Export Timeline", "No timeline events to export.");
+    return;
+  }
+  const auto path = QFileDialog::getSaveFileName(this, "Export timeline CSV", {}, "CSV (*.csv)");
+  if (path.isEmpty()) return;
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QMessageBox::warning(this, "Export Timeline", "Failed to open output file.");
+    return;
+  }
+  file.write(fie::cli::artifactEventsToCsv(m_timelineEvents).toUtf8());
+  statusBar()->showMessage(QString("Timeline CSV exported: %1").arg(path), 6000);
+}
+
 void MainWindow::onArtifactSelectionChanged() {
-  const auto rows = m_artifactTable->selectionModel()->selectedRows();
-  if (rows.isEmpty()) {
+  const auto artifact = selectedArtifact();
+  if (!artifact.has_value()) {
+    cancelArtifactDetailTask();
     const QString placeholder = tabMetadataEmptySelectionPlaceholder(m_centerTabs->currentIndex(), true, false);
     if (!placeholder.isEmpty()) {
       m_metadataPanel->setPlainText(placeholder);
@@ -1351,17 +1510,47 @@ void MainWindow::onArtifactSelectionChanged() {
     }
     return;
   }
+  const QString key = artifactDetailCacheKey(*artifact);
+  const auto cached = m_artifactDetailCache.get(key);
+  if (cached.has_value()) {
+    ArtifactDetailPanelState panelState = ArtifactDetailPanelState::Unsupported;
+    if (cached->has_value()) {
+      switch (cached->value().state) {
+      case domain::ArtifactParseState::Parsed: panelState = ArtifactDetailPanelState::Parsed; break;
+      case domain::ArtifactParseState::Partial: panelState = ArtifactDetailPanelState::Partial; break;
+      case domain::ArtifactParseState::Failed: panelState = ArtifactDetailPanelState::Failed; break;
+      case domain::ArtifactParseState::Unsupported: panelState = ArtifactDetailPanelState::Unsupported; break;
+      }
+    }
+    refreshArtifactMetadataPanel(*artifact, *cached, "Details source : session cache", panelState);
+    return;
+  }
+
+  refreshArtifactMetadataPanel(*artifact, std::nullopt, "Details source : loading on-demand...",
+                               ArtifactDetailPanelState::Loading);
+  requestArtifactDetails(*artifact);
+}
+
+std::optional<domain::ArtifactRecord> MainWindow::selectedArtifact() const {
+  const auto rows = m_artifactTable->selectionModel()->selectedRows();
+  if (rows.isEmpty()) return std::nullopt;
   const QModelIndex source = m_artifactProxy->mapToSource(rows.first());
   const auto *artifact = m_artifactModel->artifactAt(source.row());
-  if (!artifact) return;
+  if (!artifact) return std::nullopt;
+  return *artifact;
+}
 
+void MainWindow::refreshArtifactMetadataPanel(const domain::ArtifactRecord &artifact,
+                                              const std::optional<domain::ArtifactDetails> &details,
+                                              const QString &detailStatusLine,
+                                              ArtifactDetailPanelState panelState) {
   QString selectedFileContext = "none selected";
   const auto fileRows = m_fileTable->selectionModel()->selectedRows();
   if (!fileRows.isEmpty()) {
     const QModelIndex fileSource = m_fileProxy->mapToSource(fileRows.first());
     const auto *entry = m_fileModel->entryAt(fileSource.row());
     if (entry) {
-      selectedFileContext = correlationContextLine(entry->fullPath, artifact->sourceLogicalPath);
+      selectedFileContext = correlationContextLine(entry->fullPath, artifact.sourceLogicalPath);
     }
   }
 
@@ -1371,13 +1560,13 @@ void MainWindow::onArtifactSelectionChanged() {
   for (int row = 0; row < m_fileModel->rowCount(); ++row) {
     const auto *entry = m_fileModel->entryAt(row);
     if (!entry) continue;
-    const auto correlation = pathCorrelation(entry->fullPath, artifact->sourceLogicalPath);
+    const auto correlation = pathCorrelation(entry->fullPath, artifact.sourceLogicalPath);
     if (!correlation.correlated()) continue;
     if (correlation.rank < bestRank ||
         (correlation.rank == bestRank && QString::compare(entry->fullPath, bestPath, Qt::CaseInsensitive) < 0)) {
       bestRank = correlation.rank;
       bestPath = entry->fullPath;
-      bestLoadedFileContext = correlationContextLine(entry->fullPath, artifact->sourceLogicalPath);
+      bestLoadedFileContext = correlationContextLine(entry->fullPath, artifact.sourceLogicalPath);
     }
   }
 
@@ -1388,16 +1577,134 @@ void MainWindow::onArtifactSelectionChanged() {
                                         "Path         : %4\n"
                                         "Status       : %5\n"
                                         "Target type  : %6\n"
+                                        "Detail state : %7\n"
                                         "\n[Correlation Context]\n"
-                                        "Selected file: %7\n"
-                                        "Best loaded  : %8\n"
+                                        "Selected file: %8\n"
+                                        "Best loaded  : %9\n"
                                         "\n[Notes]\n"
-                                        "%9")
-                                .arg(artifact->artifactName, artifact->category, artifact->profile,
-                                     artifact->sourceLogicalPath, artifact->status,
-                                     artifact->directoryTarget ? "directory" : "file",
+                                        "%10\n\n%11")
+                                .arg(artifact.artifactName, artifact.category, artifact.profile,
+                                     artifact.sourceLogicalPath, artifact.status,
+                                     artifact.directoryTarget ? "directory" : "file",
+                                     detailStatusLine,
                                      selectedFileContext, bestLoadedFileContext,
-                                     artifact->notes.isEmpty() ? "-" : artifact->notes));
+                                     artifact.notes.isEmpty() ? "-" : artifact.notes,
+                                     formatArtifactDetailsText(details, panelState)));
+}
+
+void MainWindow::cancelArtifactDetailTask() {
+  if (m_cancelArtifactDetailTask) m_cancelArtifactDetailTask();
+  m_cancelArtifactDetailTask = {};
+  m_artifactDetailRequestId = 0;
+  m_activeArtifactDetailKey.clear();
+}
+
+void MainWindow::invalidateArtifactDetailCache() {
+  m_artifactDetailCache.clear();
+  rebuildTimelineView();
+}
+
+void MainWindow::requestArtifactDetails(const domain::ArtifactRecord &artifact) {
+  cancelArtifactDetailTask();
+  if (!m_tskImage || !m_tskImage->isOpen() || m_selectedPartitionIndex < 0 ||
+      m_selectedPartitionIndex >= static_cast<int>(m_partitions.size())) {
+    return;
+  }
+
+  auto *thread = new QThread(this);
+  auto *worker = new workers::ArtifactDetailWorker(
+      m_tskImage, m_partitions[static_cast<size_t>(m_selectedPartitionIndex)], artifact);
+  worker->moveToThread(thread);
+  QPointer<workers::ArtifactDetailWorker> workerGuard(worker);
+
+  const quint64 requestId = ++m_artifactDetailRequestId;
+  const QString requestKey = artifactDetailCacheKey(artifact);
+  m_activeArtifactDetailKey = requestKey;
+  m_cancelArtifactDetailTask = [workerGuard]() {
+    if (workerGuard) QMetaObject::invokeMethod(workerGuard, "requestCancel", Qt::QueuedConnection);
+  };
+
+  connect(thread, &QThread::started, worker, &workers::ArtifactDetailWorker::process);
+  connect(worker, &workers::ArtifactDetailWorker::completed, this,
+          [this, thread, requestId](const QString &cacheKey,
+                                    const domain::ArtifactRecord &artifact,
+                                    const domain::ForensicOperationResult &result) {
+            const auto details = artifact.details;
+            const auto current = selectedArtifact();
+            const QString currentKey = current.has_value() ? artifactDetailCacheKey(*current) : QString();
+            if (!shouldApplyArtifactDetailResult(m_artifactDetailRequestId, m_activeArtifactDetailKey, currentKey,
+                                                 requestId, cacheKey)) {
+              thread->quit();
+              return;
+            }
+
+            m_artifactDetailCache.put(cacheKey, details);
+            QString statusLine = "Details source : on-demand parser";
+            ArtifactDetailPanelState panelState = ArtifactDetailPanelState::Unsupported;
+            if (result.diagnostic.reason == "cancelled") {
+              statusLine = "Details source : cancelled";
+              panelState = ArtifactDetailPanelState::Loading;
+            } else if (!result.succeeded()) {
+              statusLine = "Details source : load failed";
+              panelState = ArtifactDetailPanelState::Failed;
+            } else if (!details.has_value()) {
+              statusLine = "Details source : unsupported artifact type";
+              panelState = ArtifactDetailPanelState::Unsupported;
+            } else if (details->state == domain::ArtifactParseState::Failed) {
+              statusLine = "Details source : parse failed";
+              panelState = ArtifactDetailPanelState::Failed;
+            } else if (details->state == domain::ArtifactParseState::Partial) {
+              statusLine = "Details source : partial parse";
+              panelState = ArtifactDetailPanelState::Partial;
+            } else {
+              panelState = ArtifactDetailPanelState::Parsed;
+            }
+
+            if (current.has_value()) {
+              refreshArtifactMetadataPanel(*current, details, statusLine, panelState);
+            }
+            rebuildTimelineView();
+            m_cancelArtifactDetailTask = {};
+            m_artifactDetailRequestId = 0;
+            m_activeArtifactDetailKey.clear();
+            thread->quit();
+          });
+  connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+  connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+  thread->start();
+}
+
+void MainWindow::rebuildTimelineView() {
+  if (!m_timelineModel) return;
+  m_timelineModel->removeRows(0, m_timelineModel->rowCount());
+
+  std::vector<domain::ArtifactRecord> artifacts = m_artifacts;
+  for (auto &artifact : artifacts) {
+    const QString key = artifactDetailCacheKey(artifact);
+    const auto cached = m_artifactDetailCache.get(key);
+    if (!cached.has_value()) continue;
+    artifact.details = *cached;
+  }
+
+  forensics::ArtifactTimelineService timelineService;
+  m_timelineEvents = timelineService.buildEvents(artifacts);
+  m_lastAnalysisSummary = buildAnalysisSummary(artifacts, m_timelineEvents);
+  if (m_timelineSummaryLabel) {
+    m_timelineSummaryLabel->setText(formatAnalysisSummary(m_lastAnalysisSummary));
+  }
+
+  for (const auto &event : m_timelineEvents) {
+    const int row = m_timelineModel->rowCount();
+    m_timelineModel->insertRow(row);
+    m_timelineModel->setItem(row, 0, new QStandardItem(event.timestamp ? event.timestamp->toString(Qt::ISODate) : "(untimed)"));
+    m_timelineModel->setItem(row, 1, new QStandardItem(event.eventType));
+    m_timelineModel->setItem(row, 2, new QStandardItem(event.artifactName));
+    m_timelineModel->setItem(row, 3, new QStandardItem(event.profile));
+    m_timelineModel->setItem(row, 4, new QStandardItem(event.sourceLogicalPath));
+    m_timelineModel->setItem(row, 5, new QStandardItem(event.parserProvider));
+    m_timelineModel->setItem(row, 6, new QStandardItem(artifactParseStateLabel(event.parseState)));
+    m_timelineModel->setItem(row, 7, new QStandardItem(event.summary));
+  }
 }
 
 void MainWindow::onCenterTabChanged(int index) {
