@@ -16,9 +16,35 @@ int runArtifactDiscoveryServiceTests() {
   };
   tree["/Windows"] = {FileEntry{.name = "Prefetch", .fullPath = "/Windows/Prefetch", .isDirectory = true}};
   tree["/Windows/Prefetch"] = {FileEntry{.name = "APP.EXE-111.pf", .fullPath = "/Windows/Prefetch/APP.EXE-111.pf", .sizeBytes = 456}};
+  tree["/Windows/System32"] = {FileEntry{.name = "Tasks", .fullPath = "/Windows/System32/Tasks", .isDirectory = true}};
+  tree["/Windows/System32/Tasks"] = {
+      FileEntry{.name = "Microsoft", .fullPath = "/Windows/System32/Tasks/Microsoft", .isDirectory = true},
+      FileEntry{.name = "StandaloneTask", .fullPath = "/Windows/System32/Tasks/StandaloneTask", .sizeBytes = 100},
+  };
+  tree["/Windows/System32/Tasks/Microsoft"] = {
+      FileEntry{.name = "Windows", .fullPath = "/Windows/System32/Tasks/Microsoft/Windows", .isDirectory = true},
+  };
+  tree["/Windows/System32/Tasks/Microsoft/Windows"] = {
+      FileEntry{.name = "Defrag", .fullPath = "/Windows/System32/Tasks/Microsoft/Windows/Defrag", .sizeBytes = 200},
+  };
   tree["/Users/Alice/AppData/Roaming/Microsoft/Windows/Recent"] = {
       FileEntry{.name = "Doc.lnk", .fullPath = "/Users/Alice/AppData/Roaming/Microsoft/Windows/Recent/Doc.lnk", .sizeBytes = 12},
       FileEntry{.name = "Auto.automaticDestinations-ms", .fullPath = "/Users/Alice/AppData/Roaming/Microsoft/Windows/Recent/Auto.automaticDestinations-ms", .sizeBytes = 34},
+  };
+  tree["/ProgramData/Microsoft/Windows/WER"] = {
+      FileEntry{.name = "ReportQueue", .fullPath = "/ProgramData/Microsoft/Windows/WER/ReportQueue", .isDirectory = true},
+  };
+  tree["/ProgramData/Microsoft/Windows/WER/ReportQueue"] = {
+      FileEntry{.name = "AppCrash_Test", .fullPath = "/ProgramData/Microsoft/Windows/WER/ReportQueue/AppCrash_Test", .isDirectory = true},
+  };
+  tree["/ProgramData/Microsoft/Windows/WER/ReportQueue/AppCrash_Test"] = {
+      FileEntry{.name = "Report.wer", .fullPath = "/ProgramData/Microsoft/Windows/WER/ReportQueue/AppCrash_Test/Report.wer", .sizeBytes = 222},
+  };
+  tree["/Windows/System32/winevt"] = {
+      FileEntry{.name = "Logs", .fullPath = "/Windows/System32/winevt/Logs", .isDirectory = true},
+  };
+  tree["/Windows/System32/winevt/Logs"] = {
+      FileEntry{.name = "Security.evtx", .fullPath = "/Windows/System32/winevt/Logs/Security.evtx", .sizeBytes = 4000},
   };
 
   ArtifactDiscoveryService service;
@@ -44,6 +70,10 @@ int runArtifactDiscoveryServiceTests() {
   bool sawLnk = false;
   bool sawMissingWithoutWarning = false;
   bool sawDirectoryTarget = false;
+  bool sawAppCompatResolver = false;
+  bool sawScheduledTaskDefinition = false;
+  bool sawWerDefinition = false;
+  bool sawEvtxDefinition = false;
   for (const auto &artifact : artifacts) {
     if (artifact.artifactName == "Chrome History" && artifact.profile == "Alice" && artifact.status == "Present") {
       sawChromeHistory = true;
@@ -57,9 +87,27 @@ int runArtifactDiscoveryServiceTests() {
     if (artifact.artifactName == "Prefetch" && artifact.status == "Present" && artifact.directoryTarget) {
       sawDirectoryTarget = true;
     }
+    if (artifact.artifactName == "AppCompatCache resolver" && artifact.status == "Missing") {
+      sawAppCompatResolver = true;
+    }
+    if (artifact.artifactName == "Scheduled Task definitions" &&
+        artifact.sourceLogicalPath == "/Windows/System32/Tasks/StandaloneTask") {
+      sawScheduledTaskDefinition = true;
+    }
+    if (artifact.artifactName == "WER report files" &&
+        artifact.sourceLogicalPath == "/ProgramData/Microsoft/Windows/WER/ReportQueue/AppCrash_Test/Report.wer") {
+      sawWerDefinition = true;
+    }
+    if (artifact.artifactName == "EVTX files" &&
+        artifact.sourceLogicalPath == "/Windows/System32/winevt/Logs/Security.evtx") {
+      sawEvtxDefinition = true;
+    }
   }
 
-  if (!sawChromeHistory || !sawLnk || !sawMissingWithoutWarning || !sawDirectoryTarget) return 1;
+  if (!sawChromeHistory || !sawLnk || !sawMissingWithoutWarning || !sawDirectoryTarget || !sawAppCompatResolver ||
+      !sawScheduledTaskDefinition || !sawWerDefinition || !sawEvtxDefinition) {
+    return 1;
+  }
   if (!warnings.isEmpty()) return 1; // missing resolver targets should not be warnings
 
   bool cancel = false;

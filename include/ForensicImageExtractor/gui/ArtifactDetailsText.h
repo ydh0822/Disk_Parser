@@ -79,6 +79,35 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
   for (const auto &e : d.bamDamEntries) {
     bamDamPreview.push_back(QString("%1:%2").arg(e.source, e.executablePath));
   }
+  QStringList jumpListPreview;
+  for (const auto &e : d.jumpListEntries) {
+    jumpListPreview.push_back(!e.targetPath.isEmpty() ? e.targetPath
+                                                       : (e.targetSummary.isEmpty() ? e.entryIdentifier : e.targetSummary));
+  }
+  QStringList appCompatPreview;
+  for (const auto &e : d.appCompatCacheEntries) {
+    appCompatPreview.push_back(e.executablePath);
+  }
+  QStringList servicePreview;
+  for (const auto &e : d.serviceEntries) {
+    servicePreview.push_back(e.serviceName.isEmpty() ? e.displayName : e.serviceName);
+  }
+  QStringList taskPreview;
+  for (const auto &e : d.scheduledTaskEntries) {
+    taskPreview.push_back(e.taskName.isEmpty() ? e.taskPath : e.taskName);
+  }
+  QStringList werPreview;
+  for (const auto &e : d.werReportEntries) {
+    werPreview.push_back(e.reportName.isEmpty() ? e.eventType : e.reportName);
+  }
+  QStringList usbPreview;
+  for (const auto &e : d.usbDeviceEntries) {
+    usbPreview.push_back(e.friendlyName.isEmpty() ? e.deviceIdentifier : e.friendlyName);
+  }
+  QStringList evtxPreview;
+  for (const auto &e : d.evtxLogEntries) {
+    evtxPreview.push_back(e.logName.isEmpty() ? e.filePath : e.logName);
+  }
 
   return QString("[Details]\n"
                  "Provider     : %1\n"
@@ -114,7 +143,25 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
                  "Amcache count : %30\n"
                  "Amcache preview: %31\n"
                  "BAM/DAM count : %32\n"
-                 "BAM/DAM preview: %33")
+                 "BAM/DAM preview: %33\n"
+                 "Jump List format: %34\n"
+                 "Jump List version: %35\n"
+                 "Jump List reported count: %36\n"
+                 "Jump List entries: %37\n"
+                 "Jump List preview: %38\n"
+                 "AppCompatCache format: %39\n"
+                 "AppCompatCache count: %40\n"
+                 "AppCompatCache preview: %41\n"
+                 "Services count: %42\n"
+                 "Services preview: %43\n"
+                 "Scheduled Tasks count: %44\n"
+                 "Scheduled Tasks preview: %45\n"
+                 "WER reports count: %46\n"
+                 "WER reports preview: %47\n"
+                 "USB devices count: %48\n"
+                 "USB devices preview: %49\n"
+                 "EVTX logs count: %50\n"
+                 "EVTX logs preview: %51")
       .arg(d.provider,
            artifactParseStateLabel(d.state),
            d.summary.isEmpty() ? "-" : d.summary,
@@ -147,7 +194,25 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
            QString::number(static_cast<int>(d.amcacheEntries.size())),
            firstN(amcachePreview),
            QString::number(static_cast<int>(d.bamDamEntries.size())),
-           firstN(bamDamPreview));
+           firstN(bamDamPreview),
+           d.jumpListFormat.isEmpty() ? "-" : d.jumpListFormat,
+           d.jumpListVersion ? QString::number(*d.jumpListVersion) : "-",
+           d.jumpListReportedEntryCount ? QString::number(*d.jumpListReportedEntryCount) : "-",
+           QString::number(static_cast<int>(d.jumpListEntries.size())),
+           firstN(jumpListPreview),
+           d.appCompatCacheFormat.isEmpty() ? "-" : d.appCompatCacheFormat,
+           QString::number(static_cast<int>(d.appCompatCacheEntries.size())),
+           firstN(appCompatPreview),
+           QString::number(static_cast<int>(d.serviceEntries.size())),
+           firstN(servicePreview),
+           QString::number(static_cast<int>(d.scheduledTaskEntries.size())),
+           firstN(taskPreview),
+           QString::number(static_cast<int>(d.werReportEntries.size())),
+           firstN(werPreview),
+           QString::number(static_cast<int>(d.usbDeviceEntries.size())),
+           firstN(usbPreview),
+           QString::number(static_cast<int>(d.evtxLogEntries.size())),
+           firstN(evtxPreview));
 }
 
 } // namespace fie::gui
