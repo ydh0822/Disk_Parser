@@ -83,8 +83,35 @@
   - Focused read-only system-hive execution coverage:
     - `Amcache.hve` (`Root\\InventoryApplication` only; narrow coverage)
     - `SYSTEM` BAM/DAM (`<ActiveControlSet>\\Services\\{bam|dam}\\State\\UserSettings`, where active set is resolved from `Select\\Current` with conservative fallback)
+    - `SYSTEM` AppCompatCache v1 (`<ActiveControlSet>\\Control\\Session Manager\\AppCompatCache\\AppCompatCache`) with conservative `utf16_path_scan_v1` path extraction only
+  - Services v1 coverage:
+    - `SYSTEM\\<ActiveControlSet>\\Services\\<ServiceName>` focused configuration extraction only (display/image/start/type/object/description/dependencies/load-order/delayed-auto/optional `Parameters\\ServiceDll`)
+  - Scheduled Tasks v1 coverage:
+    - XML-backed task definitions under `/Windows/System32/Tasks/**` with focused extraction (URI/author/description, Exec action fields, principal/settings, trigger/repetition summaries, optional registration date)
+  - WER v1 coverage:
+    - text key/value `Report.wer` / `*.wer` payloads under `/ProgramData/Microsoft/Windows/WER/**` with conservative report/app/module/exception/bucket/report metadata and optional explicit report timestamp
+  - USB registry v1 coverage:
+    - `SYSTEM\\<ActiveControlSet>\\Enum\\USBSTOR\\...` focused traversal for conservative USB device identity/configuration fields and optional key last-write timestamp
+  - EVTX v1 (focused) coverage:
+    - `.evtx` files under `/Windows/System32/winevt/Logs/**` with conservative container-aware parsing (file/chunk/record traversal) and narrow EVTX/BinXML-aware raw system-field extraction (no rendered message reconstruction)
+  - Jump List v1 coverage:
+    - `.automaticdestinations-ms` via focused CFBF/DestList parsing with explicit layout-recognition gates
+    - linked LNK stream enrichment reuses the existing Shell Link summary parser and is applied conservatively (secondary to trusted DestList path fields)
+    - `.customdestinations-ms` is explicitly unsupported/deferred in this pass
 - Registry parsing scope is intentionally narrow and production-minded: only key/value traversal required for these artifacts is implemented; this milestone is not a generic registry explorer/browser.
 - Detail parsing is explicitly read-only and deterministic; each artifact detail result is `Parsed`, `Partial`, or `Failed`. Unsupported types remain unmodified and are not treated as errors.
+- Jump List v1 trust semantics are explicit: layout-dependent trust-limited fields (`last_access_timestamp`, `access_count`, `pinned`) are emitted only when a recognized trusted DestList entry layout is matched; otherwise they remain null by design.
+- AppCompatCache v1 trust semantics are explicit: this pass treats cache path presence as triage context only and does not claim execution certainty; execution/timestamp fields remain null unless a future trusted format parser supports them.
+- Services v1 trust semantics are explicit: service registration/configuration is treated as configuration evidence only and must not be interpreted as confirmed execution.
+- Scheduled Tasks v1 trust semantics are explicit: task-definition presence/configuration is treated as configuration evidence only and must not be interpreted as confirmed execution.
+- WER v1 trust semantics are explicit: report presence is treated as report-generation context only; execution/crash timing is not inferred unless an explicit trustworthy timestamp is present in the report payload.
+- USB registry v1 trust semantics are explicit: registry device presence/configuration is treated as device-registration context only and must not be interpreted as confirmed interactive user activity.
+- EVTX v1 trust semantics are explicit: only conservatively extracted raw fields are emitted (`record_id`, provider/system fields, trusted timestamp when available, and event_data key/value only when confidently parsed); missing/untrusted fields remain null and no higher-level semantics are inferred.
+- Stabilization/decomposition pass (current): external artifact-platform behavior is intentionally kept stable while EVTX BinXML parsing is isolated into a dedicated internal parser unit to reduce coupling and improve maintainability.
+- EVTX validation/fidelity hardening pass (current): parser now applies stricter fragment/token/name-reference/depth integrity checks with deterministic malformed-payload rejection while preserving container-level salvage semantics.
+- EVTX v2 Sysmon-first channel support: `Microsoft-Windows-Sysmon/Operational.evtx` is treated as first-class for conservative EventData-based normalization (`sysmon_process_create`, `sysmon_network_connect`, `sysmon_image_load`, `sysmon_remote_thread`, `sysmon_process_access`, `sysmon_file_create`, `sysmon_registry_event`, `sysmon_named_pipe`, `sysmon_wmi_event`, `sysmon_dns_query`, `sysmon_process_tampering`, `sysmon_service_state_change`, `sysmon_config_change`) while generic `evtx_event` remains unchanged.
+- EVTX v2.1 channel-identity hardening: Sysmon normalization requires real Sysmon channel/provider identity; non-Sysmon `Operational.evtx` channels are intentionally kept on generic `evtx_event` only.
+- EVTX v2.2 realism hardening: narrow template-substitution token handling is supported in EVTX BinXML parsing to better recover conservative raw Sysmon fields from realistic payload variants while preserving strict bounds/validation behavior.
 - CLI `fie_cli artifacts scan --details` remains explicit opt-in eager enrichment; absent optional parsed fields serialize as `null` in JSON detail payloads for deterministic machine interpretation.
 - Path-based artifact parsers (e.g., SQLite-backed browser History) use read-only temporary artifact materialization via `ArtifactMaterializationService` and never modify evidence content.
 - `forensics::ArtifactTimelineService` normalizes parser-backed details into compact `domain::ArtifactEventRecord` rows for triage/timeline workflows; events preserve source artifact context and do not fabricate timestamps.
@@ -95,6 +122,13 @@
   - Chromium History: `browser_visit`, `browser_download`, `browser_download_observed`
   - Registry recent activity: `registry_run_mru`, `registry_typed_path`, `registry_recent_doc`, `userassist_execution`
   - System-level execution: `amcache_entry`, `bam_execution`, `dam_execution`
+  - AppCompatCache v1: `appcompatcache_entry_observed` (untimed by default), `appcompatcache_entry` (only when trusted timestamp exists)
+  - Services v1: `service_config_observed`, `service_config_modified` (only when service-key last-write timestamp is available)
+  - Scheduled Tasks v1: `scheduled_task_observed`, `scheduled_task_registered` (only when task XML contains a trusted registration timestamp)
+  - WER v1: `wer_report_observed`, `wer_report_created` (only when explicit trusted report timestamp exists)
+  - USB registry v1: `usb_device_observed`, `usb_device_registry_modified` (only when USB instance key last-write timestamp is available)
+  - EVTX v1 (focused): `evtx_event` (timed when event `SystemTime` is present; untimed otherwise)
+  - Jump Lists: `jump_list_access`, `jump_list_entry_observed`
 - `workers::ArtifactScanWorker` wires GUI async execution to resolver-only discovery and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
 - GUI parser-backed details are loaded via a dedicated on-demand worker (`workers::ArtifactDetailWorker`) per selected artifact row, not during scan.
 - GUI full-partition enrichment is handled by a dedicated explicit worker (`workers::ArtifactAnalysisWorker`) that processes supported present artifact files, populates the same session cache used by lazy loading, reports progress, and remains cancel-safe.

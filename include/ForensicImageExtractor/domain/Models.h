@@ -191,8 +191,129 @@ struct ArtifactDetails {
     std::optional<QDateTime> lastExecutionTimestamp;
   };
 
+  struct JumpListEntry {
+    QString entryIdentifier;
+    std::optional<quint32> streamNumber;
+    QString targetPath;
+    QString targetSummary;
+    std::optional<QDateTime> lastAccessTimestamp;
+    std::optional<quint32> accessCount;
+    std::optional<bool> pinned;
+  };
+
+  struct AppCompatCacheEntry {
+    QString sourceRegistryPath;
+    std::optional<int> entryIndex;
+    QString executablePath;
+    std::optional<QDateTime> lastModifiedTimestamp;
+    std::optional<bool> executionFlag;
+  };
+
+  struct ServiceEntry {
+    QString serviceName;
+    QString sourceRegistryPath;
+    QString displayName;
+    QString imagePath;
+    QString serviceDll;
+    std::optional<quint32> startType;
+    std::optional<quint32> serviceType;
+    QString objectName;
+    QString description;
+    std::optional<bool> delayedAutoStart;
+    QString loadOrderGroup;
+    QStringList dependencies;
+    std::optional<QDateTime> keyLastWriteTimestamp;
+  };
+
+  struct ScheduledTaskEntry {
+    QString taskName;
+    QString taskPath;
+    QString uri;
+    QString author;
+    QString description;
+    QString command;
+    QString arguments;
+    QString workingDirectory;
+    std::optional<bool> enabled;
+    std::optional<bool> hidden;
+    QString runLevel;
+    QString userId;
+    QString logonType;
+    QStringList triggerSummaries;
+    QString repetitionSummary;
+    QString actionType;
+    std::optional<QDateTime> registrationDate;
+  };
+
+  struct WerReportEntry {
+    QString reportPath;
+    QString reportName;
+    QString eventType;
+    QString applicationName;
+    QString applicationPath;
+    QString faultModuleName;
+    QString faultModulePath;
+    QString exceptionCode;
+    QString bucketId;
+    QString cabId;
+    QString reportId;
+    QString response;
+    QStringList problemSignatures;
+    std::optional<QDateTime> reportTimestamp;
+  };
+
+  struct UsbDeviceEntry {
+    QString deviceClass;
+    QString enumRoot;
+    QString deviceIdentifier;
+    QString instanceId;
+    QString vendor;
+    QString product;
+    QString revision;
+    QString serialNumber;
+    QString friendlyName;
+    QString parentIdPrefix;
+    QString service;
+    QString classGuid;
+    QString sourceRegistryPath;
+    std::optional<QDateTime> keyLastWriteTimestamp;
+  };
+
+  struct EvtxEventEntry {
+    std::optional<quint64> recordId;
+    std::optional<QDateTime> timestamp;
+    QString providerName;
+    std::optional<quint32> eventId;
+    std::optional<quint32> level;
+    QString computer;
+    std::optional<quint32> opcode;
+    std::optional<quint32> task;
+    QString keywords;
+    QStringList eventData;
+  };
+
+  struct EvtxLogEntry {
+    QString logName;
+    QString filePath;
+    std::optional<int> recordCount;
+    std::optional<QDateTime> firstEventTimestamp;
+    std::optional<QDateTime> lastEventTimestamp;
+    std::vector<EvtxEventEntry> events;
+  };
+
   std::vector<AmcacheEntry> amcacheEntries;
   std::vector<BamDamEntry> bamDamEntries;
+  QString appCompatCacheFormat;
+  std::vector<AppCompatCacheEntry> appCompatCacheEntries;
+  std::vector<ServiceEntry> serviceEntries;
+  std::vector<ScheduledTaskEntry> scheduledTaskEntries;
+  std::vector<WerReportEntry> werReportEntries;
+  std::vector<UsbDeviceEntry> usbDeviceEntries;
+  std::vector<EvtxLogEntry> evtxLogEntries;
+  QString jumpListFormat;
+  std::optional<int> jumpListVersion;
+  std::optional<quint32> jumpListReportedEntryCount;
+  std::vector<JumpListEntry> jumpListEntries;
 };
 
 struct ArtifactRecord {

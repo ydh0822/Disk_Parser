@@ -205,6 +205,57 @@ void appendRecursiveBySuffix(std::vector<domain::ArtifactRecord> &out, const QSt
   }
 }
 
+void appendRecursiveFiles(std::vector<domain::ArtifactRecord> &out, const QString &category, const QString &artifactName,
+                          const QString &profile, const QString &root, const domain::PartitionInfo &partition,
+                          const ArtifactDiscoveryService::ListDirectoryFn &listDirectory,
+                          QStringList &warnings,
+                          const ArtifactDiscoveryService::IsCancelledFn &cancel,
+                          int maxDepth = 8) {
+  if (isCancelled(cancel)) return;
+  QString rootError;
+  auto rootEntries = listDirectory(normalizePath(root), rootError);
+  if (!rootError.isEmpty()) return;
+
+  struct Node {
+    QString path;
+    int depth;
+    std::vector<domain::FileEntry> entries;
+  };
+
+  std::vector<Node> stack;
+  stack.push_back({normalizePath(root), 0, std::move(rootEntries)});
+  while (!stack.empty()) {
+    if (isCancelled(cancel)) return;
+    auto node = std::move(stack.back());
+    stack.pop_back();
+    for (const auto &entry : node.entries) {
+      if (isCancelled(cancel)) return;
+      if (entry.isDirectory && node.depth < maxDepth) {
+        QString childError;
+        auto children = listDirectory(entry.fullPath, childError);
+        if (!childError.isEmpty()) {
+          warnings.push_back(QString("Artifact traversal failed at '%1': %2").arg(entry.fullPath, childError));
+          continue;
+        }
+        stack.push_back({entry.fullPath, node.depth + 1, std::move(children)});
+        continue;
+      }
+      if (entry.isDirectory) continue;
+      domain::ArtifactRecord rec;
+      rec.category = category;
+      rec.artifactName = artifactName;
+      rec.profile = profile;
+      rec.sourceLogicalPath = entry.fullPath;
+      rec.status = "Present";
+      rec.sizeBytes = entry.sizeBytes;
+      rec.keyTimestamp = entry.metadata.timestamps.modified;
+      rec.partitionIdentifier = partition.identifier;
+      rec.fileSystemType = partition.fileSystemType;
+      out.push_back(std::move(rec));
+    }
+  }
+}
+
 } // namespace
 
 std::vector<domain::ArtifactRecord> ArtifactDiscoveryService::discover(
@@ -234,11 +285,12 @@ std::vector<domain::ArtifactRecord> ArtifactDiscoveryService::discover(
       {"Persistence", "Scheduled Tasks", "/Windows/System32/Tasks", false, true, {}},
       {"Persistence", "Services hive resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"Execution", "BAM/DAM resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
+      {"Execution", "AppCompatCache resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"External", "Recycle Bin", "/$Recycle.Bin", false, true, {}},
       {"External", "USB registry resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"Event/System", "EVTX root", "/Windows/System32/winevt/Logs", false, true, {}},
       {"Event/System", "SRUM", "/Windows/System32/sru/SRUDB.dat", false, false, "Existence check only"},
-      {"Event/System", "WER", "/ProgramData/Microsoft/Windows/WER", false, true, "Existence check only"},
+      {"Event/System", "WER", "/ProgramData/Microsoft/Windows/WER", false, true, {}},
   };
 
   appendRuleResults(out, rules, profiles, partition, listDirectory, warnings, isCancelledFn);
@@ -254,6 +306,13 @@ std::vector<domain::ArtifactRecord> ArtifactDiscoveryService::discover(
                             warnings, isCancelledFn, 3);
     if (isCancelled(isCancelledFn)) return out;
   }
+
+  appendRecursiveFiles(out, "Persistence", "Scheduled Task definitions", "SYSTEM", "/Windows/System32/Tasks",
+                       partition, listDirectory, warnings, isCancelledFn, 8);
+  appendRecursiveBySuffix(out, "Event/System", "WER report files", "SYSTEM", "/ProgramData/Microsoft/Windows/WER",
+                          {".wer"}, partition, listDirectory, warnings, isCancelledFn, 8);
+  appendRecursiveBySuffix(out, "Event/System", "EVTX files", "SYSTEM", "/Windows/System32/winevt/Logs",
+                          {".evtx"}, partition, listDirectory, warnings, isCancelledFn, 6);
 
   return out;
 }

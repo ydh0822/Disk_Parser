@@ -49,10 +49,57 @@ int runCliArtifactJsonTests() {
   if (!detailObj.value("deletion_timestamp").isNull()) return 1;
   if (!detailObj.contains("amcache_entries") || !detailObj.value("amcache_entries").toArray().isEmpty()) return 1;
   if (!detailObj.contains("bam_dam_entries") || !detailObj.value("bam_dam_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("appcompatcache_format") || !detailObj.value("appcompatcache_format").isNull()) return 1;
+  if (!detailObj.contains("appcompatcache_entries") || !detailObj.value("appcompatcache_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("service_entries") || !detailObj.value("service_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("scheduled_task_entries") || !detailObj.value("scheduled_task_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("wer_report_entries") || !detailObj.value("wer_report_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("usb_device_entries") || !detailObj.value("usb_device_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("evtx_log_entries") || !detailObj.value("evtx_log_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("jump_list_format") || !detailObj.value("jump_list_format").isNull()) return 1;
+  if (!detailObj.contains("jump_list_entries") || !detailObj.value("jump_list_entries").toArray().isEmpty()) return 1;
 
   if (second.value("category").toString() != "Execution") return 1;
   if (!second.contains("directory_target") || !second.contains("size_bytes") || !second.contains("key_timestamp")) return 1;
   if (!second.contains("details") || !second.value("details").isNull()) return 1;
+
+  fie::domain::ArtifactRecord evtx;
+  evtx.category = "Event/System";
+  evtx.artifactName = "EVTX files";
+  evtx.profile = "SYSTEM";
+  evtx.sourceLogicalPath = "/Windows/System32/winevt/Logs/Security.evtx";
+  evtx.partitionIdentifier = "p0";
+  evtx.fileSystemType = "NTFS";
+  evtx.details = fie::domain::ArtifactDetails{};
+  evtx.details->provider = "windows.evtx_v1";
+  evtx.details->state = fie::domain::ArtifactParseState::Partial;
+  fie::domain::ArtifactDetails::EvtxLogEntry evtxLog;
+  evtxLog.logName = "Security.evtx";
+  evtxLog.filePath = evtx.sourceLogicalPath;
+  fie::domain::ArtifactDetails::EvtxEventEntry evtxEvent;
+  evtxEvent.recordId = 42;
+  evtxEvent.providerName = "Microsoft-Windows-Security-Auditing";
+  evtxEvent.eventId = 4624;
+  evtxEvent.computer = "HOST1";
+  evtxEvent.eventData.push_back("TargetUserName=alice");
+  evtxLog.events.push_back(std::move(evtxEvent));
+  evtx.details->evtxLogEntries.push_back(std::move(evtxLog));
+
+  QJsonArray evtxRows = fie::cli::artifactsToJsonArray({evtx}, true);
+  if (evtxRows.size() != 1) return 1;
+  const auto evtxObj = evtxRows.at(0).toObject();
+  const auto evtxDetail = evtxObj.value("details").toObject();
+  const auto evtxLogs = evtxDetail.value("evtx_log_entries").toArray();
+  if (evtxLogs.size() != 1) return 1;
+  const auto evtxLogObj = evtxLogs.at(0).toObject();
+  const auto evtxEvents = evtxLogObj.value("events").toArray();
+  if (evtxEvents.size() != 1) return 1;
+  const auto evtxEventObj = evtxEvents.at(0).toObject();
+  if (!evtxEventObj.contains("timestamp") || !evtxEventObj.value("timestamp").isNull()) return 1;
+  if (!evtxEventObj.contains("level") || !evtxEventObj.value("level").isNull()) return 1;
+  if (!evtxEventObj.contains("opcode") || !evtxEventObj.value("opcode").isNull()) return 1;
+  if (!evtxEventObj.contains("task") || !evtxEventObj.value("task").isNull()) return 1;
+  if (evtxEventObj.value("provider_name").toString().isEmpty()) return 1;
 
   return 0;
 }
