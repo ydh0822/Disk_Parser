@@ -150,6 +150,8 @@
   - SRUM metadata probe: `srum_metadata_table_observed` (untimed, emitted only for recognized supported table identifiers discovered from parsed page/tag payloads)
   - Jump Lists: `jump_list_access`, `jump_list_entry_observed`
 - Corrective scope note (current): SRUM remains metadata-probe-only in this revision; text-derived row-candidate surfacing was intentionally rolled back so documentation/behavior remain scope-honest until true ESE row/cell decoding is implemented.
+- Fresh SRUM implementation attempt result (2026-03-27): outcome remains metadata-probe-only. Current parser infrastructure does not yet decode ESE catalog metadata and row/cell records, so widening SRUM row-level public surfaces would be misleading.
+- SRUM readiness/design constraint (current): a truthful future SRUM decoder should target one table first (recommended `network_data_usage`) and reuse existing provider/timeline plumbing, but must add real ESE catalog + record/cell decoding infrastructure before any row-level schema is exposed.
 - `workers::ArtifactScanWorker` wires GUI async execution to resolver-only discovery and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
 - GUI parser-backed details are loaded via a dedicated on-demand worker (`workers::ArtifactDetailWorker`) per selected artifact row, not during scan.
 - GUI full-partition enrichment is handled by a dedicated explicit worker (`workers::ArtifactAnalysisWorker`) that processes supported present artifact files, populates the same session cache used by lazy loading, reports progress, and remains cancel-safe.

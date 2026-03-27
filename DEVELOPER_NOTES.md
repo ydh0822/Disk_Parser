@@ -1,5 +1,33 @@
 # Developer Notes
 
+## 2026-03 SRUM Fresh Attempt Outcome
+- Chosen outcome: **B — SRUM remains metadata-probe-only**.
+- Grounded repository audit summary:
+  - current SRUM parser (`SrumEsentParser`) is container/page-tag oriented and currently stops at tag-payload token checks for known SRUM GUIDs;
+  - provider/timeline/CLI wiring is already cleanly separated and reusable for a future real decoder;
+  - there is still no real ESE catalog/table-definition parser and no row/cell decode pipeline.
+- Reusable infrastructure already present:
+  - resolver-first artifact discovery for `SRUDB.dat`;
+  - parser-backed provider dispatch (`windows.srum_metadata_probe`);
+  - stable detail/timeline serialization with explicit null semantics;
+  - timeline family for conservative metadata presence (`srum_metadata_table_observed`).
+- Missing capabilities before any truthful row/cell support:
+  1) ESE catalog parsing (table/column identity from parsed metadata, not token hits).
+  2) Real record decoding from page/tag structures (record header/null bitmap/fixed+variable+tagged columns).
+  3) Long-value handling required for tagged payloads where values are externally stored.
+  4) Conservative type conversion + explicit null handling per decoded column.
+  5) Corruption/salvage rules for malformed pages/tags/records without fabricating values.
+- Recommended smallest future target (for the *next* real implementation pass):
+  - one SRUM table only: `{973F5D5C-1D90-4944-BE8E-24B94231A174}` (`network_data_usage`);
+  - first pass should expose only minimal conservative fields with clear semantics (e.g., record identity + explicit observed interval/timestamp fields only if directly decodable and trustworthy from real cells).
+- Added anti-regression guardrails in this pass:
+  - CLI SRUM detail JSON must not expose `srum_row_entries` or any `srum_row_*` key prefix;
+  - timeline output for SRUM artifacts must remain `srum_metadata_table_observed` only;
+  - synthetic-marker-like payload text (`SRUMNDU1`) must not produce SRUM tables or row-like interpretation.
+- Explicitly forbidden for the next pass unless true ESE decoding exists:
+  - synthetic row blobs, marker-based decoders, and `rowCount + [present,value]` private formats;
+  - any row-level public SRUM surfaces without real ESE-backed row/cell extraction tests.
+
 ## 2026-03 SRUM Corrective Scope Pass
 - Reconciled SRUM implementation vs documentation claims after follow-up review.
 - Kept valid cleanup/audit work unchanged (dead-code removal, discovery warning regression, low-risk maintainability fixes).

@@ -832,6 +832,14 @@ int runArtifactDetailProviderTests() {
   if (srumUntagged->state != fie::domain::ArtifactParseState::Partial) return 1;
   if (!srumUntagged->srumTableEntries.empty()) return 1;
 
+  // synthetic marker-like payloads must never imply SRUM row-level decoding or fake table discovery
+  const QByteArray srumSyntheticMarkerOnly = buildSrumEseFixture("SRUMNDU1");
+  const auto srumSyntheticMarker =
+      service.describe(srumRec, {[&srumSyntheticMarkerOnly](const QString &, QString &) { return srumSyntheticMarkerOnly; }});
+  if (!srumSyntheticMarker.has_value()) return 1;
+  if (srumSyntheticMarker->state != fie::domain::ArtifactParseState::Partial) return 1;
+  if (!srumSyntheticMarker->srumTableEntries.empty()) return 1;
+
   // SRUM invalid container should fail cleanly
   const QByteArray srumBad("not-an-ese-file");
   const auto srumFailed = service.describe(srumRec, {[&srumBad](const QString &, QString &) { return srumBad; }});
