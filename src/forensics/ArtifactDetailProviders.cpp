@@ -123,18 +123,6 @@ std::optional<QDateTime> parseTrustedTimestamp(const QString &value) {
   return filetimeToUtc(ticks);
 }
 
-std::optional<quint32> parseOptionalUInt(const QString &value) {
-  bool ok = false;
-  const auto n = value.trimmed().toUInt(&ok, 0);
-  return ok ? std::optional<quint32>(n) : std::nullopt;
-}
-
-std::optional<quint64> parseOptionalULong(const QString &value) {
-  bool ok = false;
-  const auto n = value.trimmed().toULongLong(&ok, 0);
-  return ok ? std::optional<quint64>(n) : std::nullopt;
-}
-
 QString readNullTerminatedAnsi(const QByteArray &bytes, int off) {
   if (off < 0 || off >= bytes.size()) return {};
   int end = off;

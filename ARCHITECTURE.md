@@ -125,6 +125,12 @@
   - GUI detail/caching/stale-result handling reviewed against session/cache tests; no grounded behavior bug found in current flow.
   - Added regression that unknown provider parse failures still emit `artifact_parse_status`, protecting timeline failure visibility during future provider expansion.
   - Duplicate FILETIME conversion helpers remain intentionally duplicated across detail-provider and registry-hive modules as a documented non-blocking maintainability hotspot (deferred consolidation to avoid pre-SRUM refactor risk).
+- Post-merge whole-codebase audit/cleanup pass (current):
+  - Discovery internals were de-noised by removing confirmed dead members used by no call sites (no behavior change).
+  - Artifact detail provider internals were de-noised by removing unused numeric-parse helpers left from earlier iterations (no behavior change).
+  - Recursive-discovery warning semantics were regression-hardened: missing resolver roots remain warning-suppressed, while subtree traversal errors continue to emit explicit warnings.
+  - External artifact-platform behavior remains intentionally stable (provider dispatch model, detail/timeline event families, CLI JSON null semantics, EVTX scope, SRUM metadata-probe scope).
+  - Readiness conclusion for next major pass: ready, with one non-blocking debt hotspot intentionally deferred (duplicated FILETIME helper logic).
 - CLI `fie_cli artifacts scan --details` remains explicit opt-in eager enrichment; absent optional parsed fields serialize as `null` in JSON detail payloads for deterministic machine interpretation.
 - Path-based artifact parsers (e.g., SQLite-backed browser History) use read-only temporary artifact materialization via `ArtifactMaterializationService` and never modify evidence content.
 - `forensics::ArtifactTimelineService` normalizes parser-backed details into compact `domain::ArtifactEventRecord` rows for triage/timeline workflows; events preserve source artifact context and do not fabricate timestamps.
@@ -143,6 +149,7 @@
   - EVTX v1 (focused): `evtx_event` (timed when event `SystemTime` is present; untimed otherwise)
   - SRUM metadata probe: `srum_metadata_table_observed` (untimed, emitted only for recognized supported table identifiers discovered from parsed page/tag payloads)
   - Jump Lists: `jump_list_access`, `jump_list_entry_observed`
+- Corrective scope note (current): SRUM remains metadata-probe-only in this revision; text-derived row-candidate surfacing was intentionally rolled back so documentation/behavior remain scope-honest until true ESE row/cell decoding is implemented.
 - `workers::ArtifactScanWorker` wires GUI async execution to resolver-only discovery and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
 - GUI parser-backed details are loaded via a dedicated on-demand worker (`workers::ArtifactDetailWorker`) per selected artifact row, not during scan.
 - GUI full-partition enrichment is handled by a dedicated explicit worker (`workers::ArtifactAnalysisWorker`) that processes supported present artifact files, populates the same session cache used by lazy loading, reports progress, and remains cancel-safe.
