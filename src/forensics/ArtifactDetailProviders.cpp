@@ -2,6 +2,7 @@
 #include "ForensicImageExtractor/forensics/ArtifactMaterializationService.h"
 #include "ForensicImageExtractor/forensics/RegistryHive.h"
 #include "detail_providers/EvtxBinXmlParser.h"
+#include "detail_providers/SrumEsentParser.h"
 
 #include <QStringDecoder>
 #include <QMap>
@@ -57,7 +58,7 @@ std::optional<QDateTime> filetimeToUtc(quint64 filetime) {
   constexpr qint64 kTicksPerSecond = 10000000LL;
   constexpr qint64 kWindowsToUnixEpochSeconds = 11644473600LL;
   const qint64 sec = static_cast<qint64>(filetime / kTicksPerSecond) - kWindowsToUnixEpochSeconds;
-  if (sec <= 0) return std::nullopt;
+  if (sec < 0) return std::nullopt;
   return QDateTime::fromSecsSinceEpoch(sec, Qt::UTC);
 }
 
@@ -1932,6 +1933,56 @@ public:
   }
 };
 
+class SrumProvider final : public IArtifactDetailProvider {
+public:
+  QString name() const override { return "windows.srum_metadata_probe"; }
+  bool supports(const domain::ArtifactRecord &artifact) const override {
+    const bool nameMatch = artifact.artifactName.compare("SRUM metadata probe", Qt::CaseInsensitive) == 0 ||
+                           artifact.artifactName.compare("SRUM", Qt::CaseInsensitive) == 0;
+    return nameMatch &&
+           artifact.sourceLogicalPath.endsWith("SRUDB.dat", Qt::CaseInsensitive);
+  }
+  domain::ArtifactDetails parse(const domain::ArtifactRecord &artifact,
+                                const ArtifactDetailRequest &request) const override {
+    domain::ArtifactDetails out;
+    out.provider = name();
+
+    QString error;
+    const auto bytes = request.readBytes(artifact.sourceLogicalPath, error);
+    if (!error.isEmpty()) {
+      out.state = domain::ArtifactParseState::Failed;
+      out.error = error;
+      out.summary = "Unable to read SRUM database";
+      return out;
+    }
+
+    const auto parsed = detail_providers::parseSrumEsent(bytes);
+    out.warnings = parsed.warnings;
+    out.srumEseSignatureValid = parsed.validEse;
+    out.srumPageSize = parsed.pageSize;
+    out.srumParsedPageCount = parsed.parsedPageCount;
+    out.srumParsedTagCount = parsed.parsedTagCount;
+    for (const auto &table : parsed.tables) {
+      out.srumTableEntries.push_back({table.tableId, table.tableName});
+    }
+
+    if (!parsed.validEse) {
+      out.state = domain::ArtifactParseState::Failed;
+      out.error = "SRUM ESE header validation failed";
+      out.summary = "SRUM metadata probe failed";
+      return out;
+    }
+
+    const bool sawTables = !out.srumTableEntries.empty();
+    out.state = sawTables ? (out.warnings.isEmpty() ? domain::ArtifactParseState::Parsed
+                                                    : domain::ArtifactParseState::Partial)
+                          : domain::ArtifactParseState::Partial;
+    out.summary = sawTables ? "SRUM metadata probe parsed"
+                            : "SRUM metadata probe found no supported tables";
+    return out;
+  }
+};
+
 class ChromiumHistoryProvider final : public IArtifactDetailProvider {
 public:
   QString name() const override { return "windows.chromium_history"; }
@@ -2046,6 +2097,7 @@ ArtifactDetailService::ArtifactDetailService()
         providers.push_back(std::make_unique<ScheduledTaskProvider>());
         providers.push_back(std::make_unique<WerProvider>());
         providers.push_back(std::make_unique<EvtxProvider>());
+        providers.push_back(std::make_unique<SrumProvider>());
         providers.push_back(std::make_unique<ChromiumHistoryProvider>());
         providers.push_back(std::make_unique<JumpListAutomaticProvider>());
         return providers;

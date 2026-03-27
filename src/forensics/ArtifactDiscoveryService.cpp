@@ -289,7 +289,8 @@ std::vector<domain::ArtifactRecord> ArtifactDiscoveryService::discover(
       {"External", "Recycle Bin", "/$Recycle.Bin", false, true, {}},
       {"External", "USB registry resolver", "/Windows/System32/config/SYSTEM", false, false, "Registry hive target only"},
       {"Event/System", "EVTX root", "/Windows/System32/winevt/Logs", false, true, {}},
-      {"Event/System", "SRUM", "/Windows/System32/sru/SRUDB.dat", false, false, "Existence check only"},
+      {"Event/System", "SRUM metadata probe", "/Windows/System32/sru/SRUDB.dat", false, false,
+       "SRUM ESE page-tag metadata probe"},
       {"Event/System", "WER", "/ProgramData/Microsoft/Windows/WER", false, true, {}},
   };
 

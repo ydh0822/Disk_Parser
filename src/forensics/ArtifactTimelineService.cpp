@@ -222,6 +222,22 @@ void appendJumpListEvents(std::vector<domain::ArtifactEventRecord> &out,
   }
 }
 
+void appendSrumEvents(std::vector<domain::ArtifactEventRecord> &out,
+                      const domain::ArtifactRecord &artifact,
+                      const domain::ArtifactDetails &details) {
+  for (const auto &entry : details.srumTableEntries) {
+    auto event = makeBaseEvent(artifact, details, "srum_metadata_table_observed");
+    addField(event, "table_id", asString(entry.tableId));
+    addField(event, "table_name", asString(entry.tableName));
+    addField(event, "ese_signature_valid",
+             details.srumEseSignatureValid ? std::optional<QString>(*details.srumEseSignatureValid ? "true" : "false")
+                                           : std::nullopt);
+    addField(event, "page_size",
+             details.srumPageSize ? std::optional<QString>(QString::number(*details.srumPageSize)) : std::nullopt);
+    out.push_back(std::move(event));
+  }
+}
+
 void appendAppCompatCacheEvents(std::vector<domain::ArtifactEventRecord> &out,
                                 const domain::ArtifactRecord &artifact,
                                 const domain::ArtifactDetails &details) {
@@ -475,6 +491,8 @@ std::vector<domain::ArtifactEventRecord> ArtifactTimelineService::buildEvents(
       appendUsbEvents(events, artifact, details);
     } else if (details.provider == "windows.evtx_v1") {
       appendEvtxEvents(events, artifact, details);
+    } else if (details.provider == "windows.srum_metadata_probe") {
+      appendSrumEvents(events, artifact, details);
     } else if (details.provider == "windows.jump_list_v1") {
       appendJumpListEvents(events, artifact, details);
     } else if (details.provider.startsWith("windows.registry_", Qt::CaseInsensitive)) {

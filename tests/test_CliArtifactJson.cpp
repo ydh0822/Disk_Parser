@@ -56,6 +56,11 @@ int runCliArtifactJsonTests() {
   if (!detailObj.contains("wer_report_entries") || !detailObj.value("wer_report_entries").toArray().isEmpty()) return 1;
   if (!detailObj.contains("usb_device_entries") || !detailObj.value("usb_device_entries").toArray().isEmpty()) return 1;
   if (!detailObj.contains("evtx_log_entries") || !detailObj.value("evtx_log_entries").toArray().isEmpty()) return 1;
+  if (!detailObj.contains("srum_ese_signature_valid") || !detailObj.value("srum_ese_signature_valid").isNull()) return 1;
+  if (!detailObj.contains("srum_page_size") || !detailObj.value("srum_page_size").isNull()) return 1;
+  if (!detailObj.contains("srum_parsed_page_count") || !detailObj.value("srum_parsed_page_count").isNull()) return 1;
+  if (!detailObj.contains("srum_parsed_tag_count") || !detailObj.value("srum_parsed_tag_count").isNull()) return 1;
+  if (!detailObj.contains("srum_table_entries") || !detailObj.value("srum_table_entries").toArray().isEmpty()) return 1;
   if (!detailObj.contains("jump_list_format") || !detailObj.value("jump_list_format").isNull()) return 1;
   if (!detailObj.contains("jump_list_entries") || !detailObj.value("jump_list_entries").toArray().isEmpty()) return 1;
 
@@ -100,6 +105,31 @@ int runCliArtifactJsonTests() {
   if (!evtxEventObj.contains("opcode") || !evtxEventObj.value("opcode").isNull()) return 1;
   if (!evtxEventObj.contains("task") || !evtxEventObj.value("task").isNull()) return 1;
   if (evtxEventObj.value("provider_name").toString().isEmpty()) return 1;
+
+  fie::domain::ArtifactRecord srum;
+  srum.category = "Event/System";
+  srum.artifactName = "SRUM metadata probe";
+  srum.profile = "SYSTEM";
+  srum.sourceLogicalPath = "/Windows/System32/sru/SRUDB.dat";
+  srum.partitionIdentifier = "p0";
+  srum.fileSystemType = "NTFS";
+  srum.details = fie::domain::ArtifactDetails{};
+  srum.details->provider = "windows.srum_metadata_probe";
+  srum.details->state = fie::domain::ArtifactParseState::Parsed;
+  srum.details->srumEseSignatureValid = true;
+  srum.details->srumPageSize = 4096;
+  srum.details->srumParsedPageCount = 1;
+  srum.details->srumParsedTagCount = 1;
+  srum.details->srumTableEntries.push_back(
+      {.tableId = "{973F5D5C-1D90-4944-BE8E-24B94231A174}", .tableName = "network_data_usage"});
+  const QJsonArray srumRows = fie::cli::artifactsToJsonArray({srum}, true);
+  if (srumRows.size() != 1) return 1;
+  const auto srumDetail = srumRows.at(0).toObject().value("details").toObject();
+  if (!srumDetail.value("srum_ese_signature_valid").toBool()) return 1;
+  if (srumDetail.value("srum_page_size").toInt() != 4096) return 1;
+  if (srumDetail.value("srum_parsed_page_count").toInt() != 1) return 1;
+  if (srumDetail.value("srum_parsed_tag_count").toInt() != 1) return 1;
+  if (srumDetail.value("srum_table_entries").toArray().size() != 1) return 1;
 
   return 0;
 }

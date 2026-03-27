@@ -46,7 +46,7 @@ std::optional<QDateTime> filetimeToUtc(quint64 filetime) {
   constexpr qint64 kTicksPerSecond = 10000000LL;
   constexpr qint64 kWindowsToUnixEpochSeconds = 11644473600LL;
   const qint64 sec = static_cast<qint64>(filetime / kTicksPerSecond) - kWindowsToUnixEpochSeconds;
-  if (sec <= 0) return std::nullopt;
+  if (sec < 0) return std::nullopt;
   return QDateTime::fromSecsSinceEpoch(sec, Qt::UTC);
 }
 

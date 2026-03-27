@@ -408,9 +408,40 @@ int runArtifactTimelineServiceTests() {
   otherOperational.details->evtxLogEntries.push_back(std::move(otherOpLog));
   artifacts.push_back(otherOperational);
 
+  fie::domain::ArtifactRecord srum;
+  srum.category = "Event/System";
+  srum.artifactName = "SRUM metadata probe";
+  srum.profile = "SYSTEM";
+  srum.sourceLogicalPath = "/Windows/System32/sru/SRUDB.dat";
+  srum.partitionIdentifier = "p1";
+  srum.fileSystemType = "NTFS";
+  srum.details = fie::domain::ArtifactDetails{};
+  srum.details->provider = "windows.srum_metadata_probe";
+  srum.details->state = fie::domain::ArtifactParseState::Parsed;
+  srum.details->srumEseSignatureValid = true;
+  srum.details->srumPageSize = 4096;
+  srum.details->srumTableEntries.push_back(
+      {.tableId = "{973F5D5C-1D90-4944-BE8E-24B94231A174}", .tableName = "network_data_usage"});
+  artifacts.push_back(srum);
+
   fie::domain::ArtifactRecord unsupported;
   unsupported.sourceLogicalPath = "/Users/Alice/NTUSER.DAT";
   artifacts.push_back(unsupported);
+
+  // Unknown provider should still surface parse-status failures even without
+  // a provider-specific timeline mapper.
+  fie::domain::ArtifactRecord unknownFailed;
+  unknownFailed.category = "Other";
+  unknownFailed.artifactName = "Unknown artifact";
+  unknownFailed.profile = "SYSTEM";
+  unknownFailed.sourceLogicalPath = "/unknown/artifact.bin";
+  unknownFailed.partitionIdentifier = "p1";
+  unknownFailed.fileSystemType = "NTFS";
+  unknownFailed.details = fie::domain::ArtifactDetails{};
+  unknownFailed.details->provider = "windows.unknown_future_provider";
+  unknownFailed.details->state = fie::domain::ArtifactParseState::Failed;
+  unknownFailed.details->error = "synthetic failure";
+  artifacts.push_back(unknownFailed);
 
   fie::forensics::ArtifactTimelineService svc;
   const auto events = svc.buildEvents(artifacts);
@@ -447,6 +478,8 @@ int runArtifactTimelineServiceTests() {
   bool sawSysmonFileCreate = false;
   bool sawSysmonProcessTampering = false;
   bool sawNonSysmonOperationalMapped = false;
+  bool sawUnknownFailedParseStatus = false;
+  bool sawSrumTableObserved = false;
   for (const auto &e : events) {
     if (e.eventType == "artifact_parse_status" && e.parseState == fie::domain::ArtifactParseState::Failed) sawFailedStatus = true;
     if (e.sourceLogicalPath == unsupported.sourceLogicalPath) sawUnsupported = true;
@@ -476,6 +509,14 @@ int runArtifactTimelineServiceTests() {
     if (e.sourceLogicalPath.contains("TaskScheduler/Operational.evtx") && e.eventType.startsWith("sysmon_")) {
       sawNonSysmonOperationalMapped = true;
     }
+    if (e.sourceLogicalPath == unknownFailed.sourceLogicalPath && e.eventType == "artifact_parse_status" &&
+        e.parseState == fie::domain::ArtifactParseState::Failed) {
+      sawUnknownFailedParseStatus = true;
+    }
+    if (e.eventType == "srum_metadata_table_observed" && e.sourceLogicalPath == srum.sourceLogicalPath &&
+        !e.timestamp.has_value()) {
+      sawSrumTableObserved = true;
+    }
   }
   if (!sawFailedStatus) return 1;
   if (sawUnsupported) return 1;
@@ -492,6 +533,8 @@ int runArtifactTimelineServiceTests() {
   if (sawSysmonDnsTimed) return 1;
   if (!sawSysmonDnsUntimed) return 1;
   if (sawNonSysmonOperationalMapped) return 1;
+  if (!sawUnknownFailedParseStatus) return 1;
+  if (!sawSrumTableObserved) return 1;
 
   const auto json = fie::cli::artifactEventsToJsonArray(events);
   if (json.isEmpty()) return 1;

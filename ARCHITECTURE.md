@@ -94,6 +94,10 @@
     - `SYSTEM\\<ActiveControlSet>\\Enum\\USBSTOR\\...` focused traversal for conservative USB device identity/configuration fields and optional key last-write timestamp
   - EVTX v1 (focused) coverage:
     - `.evtx` files under `/Windows/System32/winevt/Logs/**` with conservative container-aware parsing (file/chunk/record traversal) and narrow EVTX/BinXML-aware raw system-field extraction (no rendered message reconstruction)
+  - SRUM metadata probe coverage (narrow pass, not full SRUM v1 semantics):
+    - `/Windows/System32/sru/SRUDB.dat` focused ESE-container metadata validation
+    - structure-backed page/tag parsing is used to discover supported SRUM table identifiers from parsed tag payloads
+    - row-level decoding is intentionally deferred
   - Jump List v1 coverage:
     - `.automaticdestinations-ms` via focused CFBF/DestList parsing with explicit layout-recognition gates
     - linked LNK stream enrichment reuses the existing Shell Link summary parser and is applied conservatively (secondary to trusted DestList path fields)
@@ -112,6 +116,15 @@
 - EVTX v2 Sysmon-first channel support: `Microsoft-Windows-Sysmon/Operational.evtx` is treated as first-class for conservative EventData-based normalization (`sysmon_process_create`, `sysmon_network_connect`, `sysmon_image_load`, `sysmon_remote_thread`, `sysmon_process_access`, `sysmon_file_create`, `sysmon_registry_event`, `sysmon_named_pipe`, `sysmon_wmi_event`, `sysmon_dns_query`, `sysmon_process_tampering`, `sysmon_service_state_change`, `sysmon_config_change`) while generic `evtx_event` remains unchanged.
 - EVTX v2.1 channel-identity hardening: Sysmon normalization requires real Sysmon channel/provider identity; non-Sysmon `Operational.evtx` channels are intentionally kept on generic `evtx_event` only.
 - EVTX v2.2 realism hardening: narrow template-substitution token handling is supported in EVTX BinXML parsing to better recover conservative raw Sysmon fields from realistic payload variants while preserving strict bounds/validation behavior.
+- Pre-SRUM whole-codebase stabilization/review (historical baseline): discovery/detail providers, CLI/GUI serialization surfaces, and timeline normalization were reviewed end-to-end for consistency; external artifact-platform behavior stayed intentionally stable (provider names, JSON schema shape, timeline family names, and explicit null semantics).
+- Pre-SRUM correctness hardening (historical baseline): FILETIME-to-UTC conversion preserves exactly-epoch (`1970-01-01T00:00:00Z`) values instead of collapsing them to null.
+- Pre-SRUM readiness audit follow-up (historical baseline): no architecture-level blockers were identified for SRUM integration; provider/timeline growth pressure was documented as a maintainability hotspot with adequate regression guardrails.
+- Audit evidence (follow-up):
+  - Discovery/detail/timeline coverage parity for current families re-checked against existing service/tests; no contract changes required.
+  - CLI details/timeline JSON explicit-null behavior re-checked; no schema changes made in this pass to preserve consumer stability.
+  - GUI detail/caching/stale-result handling reviewed against session/cache tests; no grounded behavior bug found in current flow.
+  - Added regression that unknown provider parse failures still emit `artifact_parse_status`, protecting timeline failure visibility during future provider expansion.
+  - Duplicate FILETIME conversion helpers remain intentionally duplicated across detail-provider and registry-hive modules as a documented non-blocking maintainability hotspot (deferred consolidation to avoid pre-SRUM refactor risk).
 - CLI `fie_cli artifacts scan --details` remains explicit opt-in eager enrichment; absent optional parsed fields serialize as `null` in JSON detail payloads for deterministic machine interpretation.
 - Path-based artifact parsers (e.g., SQLite-backed browser History) use read-only temporary artifact materialization via `ArtifactMaterializationService` and never modify evidence content.
 - `forensics::ArtifactTimelineService` normalizes parser-backed details into compact `domain::ArtifactEventRecord` rows for triage/timeline workflows; events preserve source artifact context and do not fabricate timestamps.
@@ -128,6 +141,7 @@
   - WER v1: `wer_report_observed`, `wer_report_created` (only when explicit trusted report timestamp exists)
   - USB registry v1: `usb_device_observed`, `usb_device_registry_modified` (only when USB instance key last-write timestamp is available)
   - EVTX v1 (focused): `evtx_event` (timed when event `SystemTime` is present; untimed otherwise)
+  - SRUM metadata probe: `srum_metadata_table_observed` (untimed, emitted only for recognized supported table identifiers discovered from parsed page/tag payloads)
   - Jump Lists: `jump_list_access`, `jump_list_entry_observed`
 - `workers::ArtifactScanWorker` wires GUI async execution to resolver-only discovery and returns artifact rows plus a single structured operation result; scan warnings are carried in `ForensicOperationResult.diagnostic.detail` when `state=SuccessWithWarning`.
 - GUI parser-backed details are loaded via a dedicated on-demand worker (`workers::ArtifactDetailWorker`) per selected artifact row, not during scan.

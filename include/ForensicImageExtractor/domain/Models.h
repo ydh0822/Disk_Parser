@@ -301,6 +301,11 @@ struct ArtifactDetails {
     std::vector<EvtxEventEntry> events;
   };
 
+  struct SrumTableEntry {
+    QString tableId;
+    QString tableName;
+  };
+
   std::vector<AmcacheEntry> amcacheEntries;
   std::vector<BamDamEntry> bamDamEntries;
   QString appCompatCacheFormat;
@@ -310,6 +315,11 @@ struct ArtifactDetails {
   std::vector<WerReportEntry> werReportEntries;
   std::vector<UsbDeviceEntry> usbDeviceEntries;
   std::vector<EvtxLogEntry> evtxLogEntries;
+  std::optional<bool> srumEseSignatureValid;
+  std::optional<quint32> srumPageSize;
+  std::optional<int> srumParsedPageCount;
+  std::optional<int> srumParsedTagCount;
+  std::vector<SrumTableEntry> srumTableEntries;
   QString jumpListFormat;
   std::optional<int> jumpListVersion;
   std::optional<quint32> jumpListReportedEntryCount;

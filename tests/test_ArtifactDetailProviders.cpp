@@ -436,6 +436,28 @@ QByteArray buildEvtxFixture(const std::vector<QByteArray> &records) {
   return out;
 }
 
+QByteArray buildSrumEseFixture(const QByteArray &tagPayload, const QByteArray &untaggedPayload = {}, bool includeTag = true) {
+  QByteArray out(4096 * 2, 0);
+  out.replace(4, 4, QByteArray::fromHex("EFCDAB89"));
+  writeLe32(out, 236, 4096);
+
+  QByteArray page(4096, 0);
+  if (includeTag) {
+    const quint16 ib = 0x0200;
+    const quint16 cb = static_cast<quint16>(std::min<int>(tagPayload.size(), 1024));
+    page.replace(ib, cb, tagPayload.left(cb));
+    writeLe32(page, 4096 - 4, static_cast<quint32>(ib) | (static_cast<quint32>(cb) << 16));
+    page[0x16] = 0x01;
+    page[0x17] = 0x00;
+  }
+  if (!untaggedPayload.isEmpty()) {
+    page.replace(0x0100, std::min<int>(untaggedPayload.size(), 512), untaggedPayload.left(512));
+  }
+
+  out.replace(4096, 4096, page);
+  return out;
+}
+
 } // namespace
 
 int runArtifactDetailProviderTests() {
@@ -456,6 +478,19 @@ int runArtifactDetailProviderTests() {
   if (iDetails->state != fie::domain::ArtifactParseState::Parsed) return 1;
   if (iDetails->originalPath != "C:\\Users\\Alice\\Desktop\\x.txt") return 1;
   if (!iDetails->originalSizeBytes || *iDetails->originalSizeBytes != 512) return 1;
+
+  // FILETIME unix epoch is valid and should not be dropped as null
+  fie::domain::ArtifactRecord iEpochRec = iRec;
+  QByteArray iEpochBytes;
+  iEpochBytes += le64(2);
+  iEpochBytes += le64(1);
+  iEpochBytes += le64(116444736000000000ULL);
+  iEpochBytes += utf16(QString("C:\\epoch.txt"));
+  iEpochBytes += QByteArray("\0\0", 2);
+  const auto iEpochDetails = service.describe(iEpochRec, {[&iEpochBytes](const QString &, QString &) { return iEpochBytes; }});
+  if (!iEpochDetails.has_value()) return 1;
+  if (!iEpochDetails->deletionTimestamp.has_value()) return 1;
+  if (iEpochDetails->deletionTimestamp->toSecsSinceEpoch() != 0) return 1;
 
   // LNK summary provider
   fie::domain::ArtifactRecord lnkRec;
@@ -775,6 +810,33 @@ int runArtifactDetailProviderTests() {
     }
   }
   if (!sawNonPrimaryWarning) return 1;
+
+  // SRUM metadata probe: structure-backed page-tag discovery
+  fie::domain::ArtifactRecord srumRec;
+  srumRec.artifactName = "SRUM metadata probe";
+  srumRec.sourceLogicalPath = "/Windows/System32/sru/SRUDB.dat";
+  const QByteArray srumBytes = buildSrumEseFixture("{973F5D5C-1D90-4944-BE8E-24B94231A174}");
+  const auto srumDetails = service.describe(srumRec, {[&srumBytes](const QString &, QString &) { return srumBytes; }});
+  if (!srumDetails.has_value()) return 1;
+  if (srumDetails->provider != "windows.srum_metadata_probe") return 1;
+  if (srumDetails->state == fie::domain::ArtifactParseState::Failed) return 1;
+  if (!srumDetails->srumEseSignatureValid || !*srumDetails->srumEseSignatureValid) return 1;
+  if (!srumDetails->srumPageSize || *srumDetails->srumPageSize != 4096) return 1;
+  if (!srumDetails->srumParsedTagCount || *srumDetails->srumParsedTagCount < 1) return 1;
+  if (srumDetails->srumTableEntries.empty()) return 1;
+
+  // token bytes outside parsed tag payloads must not be treated as discovered tables
+  const QByteArray srumUntaggedOnly = buildSrumEseFixture({}, "{973F5D5C-1D90-4944-BE8E-24B94231A174}", false);
+  const auto srumUntagged = service.describe(srumRec, {[&srumUntaggedOnly](const QString &, QString &) { return srumUntaggedOnly; }});
+  if (!srumUntagged.has_value()) return 1;
+  if (srumUntagged->state != fie::domain::ArtifactParseState::Partial) return 1;
+  if (!srumUntagged->srumTableEntries.empty()) return 1;
+
+  // SRUM invalid container should fail cleanly
+  const QByteArray srumBad("not-an-ese-file");
+  const auto srumFailed = service.describe(srumRec, {[&srumBad](const QString &, QString &) { return srumBad; }});
+  if (!srumFailed.has_value()) return 1;
+  if (srumFailed->state != fie::domain::ArtifactParseState::Failed) return 1;
 
   // Unsupported type
   fie::domain::ArtifactRecord unsupported;

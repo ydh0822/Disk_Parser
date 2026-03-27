@@ -108,6 +108,10 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
   for (const auto &e : d.evtxLogEntries) {
     evtxPreview.push_back(e.logName.isEmpty() ? e.filePath : e.logName);
   }
+  QStringList srumPreview;
+  for (const auto &e : d.srumTableEntries) {
+    srumPreview.push_back(e.tableName.isEmpty() ? e.tableId : e.tableName);
+  }
 
   return QString("[Details]\n"
                  "Provider     : %1\n"
@@ -161,7 +165,12 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
                  "USB devices count: %48\n"
                  "USB devices preview: %49\n"
                  "EVTX logs count: %50\n"
-                 "EVTX logs preview: %51")
+                 "EVTX logs preview: %51\n"
+                 "SRUM signature valid: %52\n"
+                 "SRUM page size: %53\n"
+                 "SRUM parsed pages: %54\n"
+                 "SRUM parsed tags: %55\n"
+                 "SRUM tables: %56")
       .arg(d.provider,
            artifactParseStateLabel(d.state),
            d.summary.isEmpty() ? "-" : d.summary,
@@ -212,7 +221,12 @@ inline QString formatArtifactDetailsText(const std::optional<domain::ArtifactDet
            QString::number(static_cast<int>(d.usbDeviceEntries.size())),
            firstN(usbPreview),
            QString::number(static_cast<int>(d.evtxLogEntries.size())),
-           firstN(evtxPreview));
+           firstN(evtxPreview),
+           d.srumEseSignatureValid ? (*d.srumEseSignatureValid ? "true" : "false") : "-",
+           d.srumPageSize ? QString::number(*d.srumPageSize) : "-",
+           d.srumParsedPageCount ? QString::number(*d.srumParsedPageCount) : "-",
+           d.srumParsedTagCount ? QString::number(*d.srumParsedTagCount) : "-",
+           firstN(srumPreview));
 }
 
 } // namespace fie::gui

@@ -101,6 +101,12 @@ int runArtifactDetailsTextTests() {
                                     .firstEventTimestamp = std::nullopt,
                                     .lastEventTimestamp = std::nullopt,
                                     .events = {}});
+  details.srumEseSignatureValid = true;
+  details.srumPageSize = 4096;
+  details.srumParsedPageCount = 1;
+  details.srumParsedTagCount = 1;
+  details.srumTableEntries.push_back(
+      {.tableId = "{973F5D5C-1D90-4944-BE8E-24B94231A174}", .tableName = "network_data_usage"});
 
   const QString rendered = fie::gui::formatArtifactDetailsText(details, fie::gui::ArtifactDetailPanelState::Partial);
   if (!rendered.contains("windows.prefetch_summary")) return 1;
@@ -127,6 +133,11 @@ int runArtifactDetailsTextTests() {
   if (!rendered.contains("USB devices preview: SanDisk Cruzer USB Device")) return 1;
   if (!rendered.contains("EVTX logs count: 1")) return 1;
   if (!rendered.contains("EVTX logs preview: Security.evtx")) return 1;
+  if (!rendered.contains("SRUM signature valid: true")) return 1;
+  if (!rendered.contains("SRUM page size: 4096")) return 1;
+  if (!rendered.contains("SRUM parsed pages: 1")) return 1;
+  if (!rendered.contains("SRUM parsed tags: 1")) return 1;
+  if (!rendered.contains("SRUM tables: network_data_usage")) return 1;
   if (!rendered.contains("a=cmd.exe")) return 1;
   if (!rendered.contains("bam:C:\\Windows\\System32\\cmd.exe")) return 1;
 
