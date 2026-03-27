@@ -38,6 +38,7 @@ add_library(fie_core
   src/forensics/ArtifactDiscoveryService.cpp
   src/forensics/ArtifactDetailProviders.cpp
   src/forensics/detail_providers/EvtxBinXmlParser.cpp
+  src/forensics/detail_providers/SrumEsentParser.cpp
   src/forensics/ArtifactTimelineService.cpp
   src/forensics/ArtifactDataAccess.cpp
   src/forensics/ArtifactMaterializationService.cpp

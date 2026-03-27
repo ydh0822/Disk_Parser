@@ -1,5 +1,45 @@
 # Developer Notes
 
+## 2026-03 SRUM Corrective Pass (scope-honesty + structure-backed parsing)
+- Corrected previous SRUM over-claim: earlier implementation used whole-file token scanning and was not grounded enough to justify public SRUM v1 wording.
+- Kept end-to-end wiring (discovery/provider/CLI/GUI/timeline/tests) but narrowed public scope wording to **SRUM metadata probe**.
+- Added SRUM discovery integration for `/Windows/System32/sru/SRUDB.dat` through the existing resolver-first artifact scan path (no broad directory over-scan).
+- Added parser-backed SRUM provider (`windows.srum_metadata_probe`) with focused read-only ESE-container validation.
+- Replaced blind whole-file token scanning with structure-backed page/tag parsing in `src/forensics/detail_providers/SrumEsentParser.*`; supported table IDs are now discovered only from parsed tag payload regions.
+- Added SRUM CLI/GUI detail serialization surfaces with explicit null semantics:
+  - `srum_ese_signature_valid`
+  - `srum_page_size`
+  - `srum_parsed_page_count`
+  - `srum_parsed_tag_count`
+  - `srum_table_entries[]` (`table_id`, `table_name`)
+- Added timeline normalization for SRUM probe with conservative untimed family `srum_metadata_table_observed` (table presence context only from grounded parsed metadata).
+- Added SRUM regression coverage across discovery/detail/timeline/CLI JSON/GUI text:
+  - positive fixture where supported tables are discovered via parsed page/tag payload metadata
+  - negative fixture where GUID/token bytes outside parsed tag payloads are not treated as discovered tables
+  - corrupt/invalid SRUM container failure handling
+  - explicit null JSON behavior
+  - timeline projection + provider-dispatch behavior
+- Intentionally out of scope in this SRUM metadata probe pass:
+  - full ESE row decoding across SRUM tables
+  - speculative semantic inference/correlation from partial table hints
+  - application identity resolution heuristics beyond directly observed tokens
+
+## 2026-03 Pre-SRUM Whole-Codebase Stabilization Pass
+- Conducted an end-to-end artifact-platform consistency review across discovery, parser-backed detail providers, CLI JSON serialization, GUI detail rendering, timeline normalization, test coverage, and docs.
+- Intentionally kept public artifact-platform behavior stable in this pass (provider naming, scan/timeline command surfaces, JSON schema shape, timeline family names, and explicit null semantics).
+- Confirmed scope guardrails: no SRUM parser work, no new artifact family additions, no EVTX widening into rendered-message/provider-DLL reconstruction, and no cross-artifact semantic-correlation expansion.
+- Narrow correctness fix: FILETIME conversion now preserves exactly-epoch values (`1970-01-01T00:00:00Z`) instead of converting them to null.
+- Added regression coverage for epoch FILETIME handling in parser-backed artifact detail tests.
+- Historical note: this pre-SRUM pass was completed before SRUM v1 implementation.
+
+## 2026-03 Pre-SRUM Whole-Codebase Readiness Audit (follow-up)
+- Re-audited discovery, detail-provider dispatch, CLI JSON serialization, GUI detail rendering, timeline normalization, tests, and docs for SRUM-readiness risk.
+- Found no grounded blocker requiring artifact-platform contract changes; provider names, schema, timeline families, trust/null semantics, and EVTX public behavior remain intentionally stable.
+- Added direct registry-hive regression coverage so exact-epoch FILETIME handling is verified in both parser-facing and hive-level code paths.
+- Added timeline dispatch regression coverage to ensure failed parse-state events are still emitted as `artifact_parse_status` even for unknown/unmapped provider names (defensive stability for future provider growth).
+- Duplicated FILETIME conversion logic (`ArtifactDetailProviders.cpp` and `RegistryHive.cpp`) was reviewed as a non-blocking maintainability hotspot; retained duplication intentionally in this pass to avoid low-value cross-module refactor risk immediately before SRUM.
+- Readiness conclusion: **Ready for SRUM v1 next**.
+
 ## Stabilization decisions (final cleanup pass)
 
 1. **Deleted entry classification**
@@ -69,5 +109,5 @@
 - Hardened GUI detail rendering with compact registry/system-execution entry counts and previews for analyst visibility.
 - Enhanced file triage table/filtering and right-click context actions to support examiner workflows without changing read-only extraction semantics.
 - Deferred: deeper registry ecosystems beyond recent-activity + system-execution v1 (broader AppCompatCache formats, richer Services SCM semantics, SAM/SECURITY deep parsing), advanced Task Scheduler correlation/legacy `.job` parsing, EVTX rendered-message reconstruction/provider DLL loading/publisher metadata resolution, Jump List CustomDestinations parsing, WER dump/CAB/non-text payload parsing, broad USB session/mounted-device/user-hive correlation, timeline correlation, and broader artifact parser coverage.
-- Deferred next major feature pass: SRUM v1 coverage and broader multi-artifact semantic correlation.
+- Deferred next major SRUM expansion passes: deeper SRUM table/row coverage and broader multi-artifact semantic correlation.
 - Validation note: directory-target artifacts (e.g., Prefetch/Downloads/Startup/Tasks/EVTX root) now flow through the same `startExtractionTask` path used by standard file extraction, so recursive directory extraction semantics and progress/catalog reporting are shared.

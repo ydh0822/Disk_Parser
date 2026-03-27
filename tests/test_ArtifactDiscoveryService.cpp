@@ -16,7 +16,13 @@ int runArtifactDiscoveryServiceTests() {
   };
   tree["/Windows"] = {FileEntry{.name = "Prefetch", .fullPath = "/Windows/Prefetch", .isDirectory = true}};
   tree["/Windows/Prefetch"] = {FileEntry{.name = "APP.EXE-111.pf", .fullPath = "/Windows/Prefetch/APP.EXE-111.pf", .sizeBytes = 456}};
-  tree["/Windows/System32"] = {FileEntry{.name = "Tasks", .fullPath = "/Windows/System32/Tasks", .isDirectory = true}};
+  tree["/Windows/System32"] = {
+      FileEntry{.name = "Tasks", .fullPath = "/Windows/System32/Tasks", .isDirectory = true},
+      FileEntry{.name = "sru", .fullPath = "/Windows/System32/sru", .isDirectory = true},
+  };
+  tree["/Windows/System32/sru"] = {
+      FileEntry{.name = "SRUDB.dat", .fullPath = "/Windows/System32/sru/SRUDB.dat", .sizeBytes = 8192},
+  };
   tree["/Windows/System32/Tasks"] = {
       FileEntry{.name = "Microsoft", .fullPath = "/Windows/System32/Tasks/Microsoft", .isDirectory = true},
       FileEntry{.name = "StandaloneTask", .fullPath = "/Windows/System32/Tasks/StandaloneTask", .sizeBytes = 100},
@@ -74,6 +80,7 @@ int runArtifactDiscoveryServiceTests() {
   bool sawScheduledTaskDefinition = false;
   bool sawWerDefinition = false;
   bool sawEvtxDefinition = false;
+  bool sawSrum = false;
   for (const auto &artifact : artifacts) {
     if (artifact.artifactName == "Chrome History" && artifact.profile == "Alice" && artifact.status == "Present") {
       sawChromeHistory = true;
@@ -102,10 +109,15 @@ int runArtifactDiscoveryServiceTests() {
         artifact.sourceLogicalPath == "/Windows/System32/winevt/Logs/Security.evtx") {
       sawEvtxDefinition = true;
     }
+    if (artifact.artifactName == "SRUM metadata probe" &&
+        artifact.sourceLogicalPath == "/Windows/System32/sru/SRUDB.dat" &&
+        artifact.status == "Present") {
+      sawSrum = true;
+    }
   }
 
   if (!sawChromeHistory || !sawLnk || !sawMissingWithoutWarning || !sawDirectoryTarget || !sawAppCompatResolver ||
-      !sawScheduledTaskDefinition || !sawWerDefinition || !sawEvtxDefinition) {
+      !sawScheduledTaskDefinition || !sawWerDefinition || !sawEvtxDefinition || !sawSrum) {
     return 1;
   }
   if (!warnings.isEmpty()) return 1; // missing resolver targets should not be warnings

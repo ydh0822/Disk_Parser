@@ -108,7 +108,7 @@ QByteArray buildSyntheticNtUserHive() {
   const auto runMruKey = b.addKey("RunMRU", {}, {runA, runB, runMru});
 
   const auto tp1 = b.addValue("url1", 1, utf16z("C:\\Windows"));
-  const auto typedPaths = b.addKey("TypedPaths", {}, {tp1});
+  const auto typedPaths = b.addKey("TypedPaths", {}, {tp1}, 116444736000000000ULL);
 
   const auto rd0 = b.addValue("0", 1, utf16z("alpha.txt"));
   QByteArray mruEx;
@@ -145,6 +145,10 @@ int runRegistryRecentActivityTests() {
   if (!hive.open(hiveBytes, error)) return 1;
   const auto runMru = hive.keyByPath("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\RunMRU", error);
   if (!runMru.has_value()) return 1;
+  const auto typedPathsKey = hive.keyByPath("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\TypedPaths", error);
+  if (!typedPathsKey.has_value()) return 1;
+  if (!typedPathsKey->lastWrite.has_value()) return 1;
+  if (typedPathsKey->lastWrite->toSecsSinceEpoch() != 0) return 1;
 
   fie::forensics::ArtifactDetailService service;
 

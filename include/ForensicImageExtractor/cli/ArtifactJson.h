@@ -301,6 +301,23 @@ inline QJsonObject artifactDetailsToJson(const domain::ArtifactDetails &details)
   }
   obj["evtx_log_entries"] = evtxLogs;
 
+  obj["srum_ese_signature_valid"] = details.srumEseSignatureValid ? QJsonValue(*details.srumEseSignatureValid)
+                                                                   : QJsonValue::Null;
+  obj["srum_page_size"] = details.srumPageSize ? QJsonValue(static_cast<qint64>(*details.srumPageSize))
+                                               : QJsonValue::Null;
+  obj["srum_parsed_page_count"] = details.srumParsedPageCount ? QJsonValue(*details.srumParsedPageCount)
+                                                              : QJsonValue::Null;
+  obj["srum_parsed_tag_count"] = details.srumParsedTagCount ? QJsonValue(*details.srumParsedTagCount)
+                                                            : QJsonValue::Null;
+  QJsonArray srumTables;
+  for (const auto &entry : details.srumTableEntries) {
+    QJsonObject row;
+    row["table_id"] = entry.tableId.isEmpty() ? QJsonValue::Null : QJsonValue(entry.tableId);
+    row["table_name"] = entry.tableName.isEmpty() ? QJsonValue::Null : QJsonValue(entry.tableName);
+    srumTables.append(row);
+  }
+  obj["srum_table_entries"] = srumTables;
+
   obj["jump_list_format"] = details.jumpListFormat.isEmpty() ? QJsonValue::Null : QJsonValue(details.jumpListFormat);
   obj["jump_list_version"] = details.jumpListVersion ? QJsonValue(*details.jumpListVersion) : QJsonValue::Null;
   obj["jump_list_reported_entry_count"] = details.jumpListReportedEntryCount
