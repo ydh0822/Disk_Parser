@@ -130,6 +130,10 @@ int runCliArtifactJsonTests() {
   if (srumDetail.value("srum_parsed_page_count").toInt() != 1) return 1;
   if (srumDetail.value("srum_parsed_tag_count").toInt() != 1) return 1;
   if (srumDetail.value("srum_table_entries").toArray().size() != 1) return 1;
+  if (srumDetail.contains("srum_row_entries")) return 1;
+  for (auto it = srumDetail.constBegin(); it != srumDetail.constEnd(); ++it) {
+    if (it.key().startsWith("srum_row_")) return 1;
+  }
 
   return 0;
 }

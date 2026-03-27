@@ -480,6 +480,8 @@ int runArtifactTimelineServiceTests() {
   bool sawNonSysmonOperationalMapped = false;
   bool sawUnknownFailedParseStatus = false;
   bool sawSrumTableObserved = false;
+  bool sawUnexpectedSrumRowEvent = false;
+  bool sawUnexpectedNonMetadataSrumEvent = false;
   for (const auto &e : events) {
     if (e.eventType == "artifact_parse_status" && e.parseState == fie::domain::ArtifactParseState::Failed) sawFailedStatus = true;
     if (e.sourceLogicalPath == unsupported.sourceLogicalPath) sawUnsupported = true;
@@ -517,6 +519,11 @@ int runArtifactTimelineServiceTests() {
         !e.timestamp.has_value()) {
       sawSrumTableObserved = true;
     }
+    if (e.eventType.startsWith("srum_row_")) sawUnexpectedSrumRowEvent = true;
+    if (e.sourceLogicalPath == srum.sourceLogicalPath && e.eventType.startsWith("srum_") &&
+        e.eventType != "srum_metadata_table_observed") {
+      sawUnexpectedNonMetadataSrumEvent = true;
+    }
   }
   if (!sawFailedStatus) return 1;
   if (sawUnsupported) return 1;
@@ -535,6 +542,8 @@ int runArtifactTimelineServiceTests() {
   if (sawNonSysmonOperationalMapped) return 1;
   if (!sawUnknownFailedParseStatus) return 1;
   if (!sawSrumTableObserved) return 1;
+  if (sawUnexpectedSrumRowEvent) return 1;
+  if (sawUnexpectedNonMetadataSrumEvent) return 1;
 
   const auto json = fie::cli::artifactEventsToJsonArray(events);
   if (json.isEmpty()) return 1;

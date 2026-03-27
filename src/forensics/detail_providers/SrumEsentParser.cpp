@@ -119,6 +119,8 @@ SrumEsentParseResult parseSrumEsent(const QByteArray &bytes) {
     auto taggedPayloads = extractTaggedPayloadsFromPage(page, out.warnings);
     parsedTags += static_cast<int>(taggedPayloads.size());
     for (const auto &payload : taggedPayloads) {
+      // Scope guard: this parser intentionally remains metadata-probe-only.
+      // It does not decode ESE rows/cells from payloads in this revision.
       for (const auto &token : kSupportedTokens) {
         if (!containsToken(payload, token.id)) continue;
         if (!seenTables.contains(token.id)) {
