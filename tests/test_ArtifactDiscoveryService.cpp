@@ -1,6 +1,7 @@
 #include "ForensicImageExtractor/forensics/ArtifactDiscoveryService.h"
 
 #include <QHash>
+#include <algorithm>
 
 int runArtifactDiscoveryServiceTests() {
   using fie::domain::FileEntry;
@@ -121,6 +122,36 @@ int runArtifactDiscoveryServiceTests() {
     return 1;
   }
   if (!warnings.isEmpty()) return 1; // missing resolver targets should not be warnings
+
+  // Recursive artifact traversal failures should surface warnings for visibility.
+  QHash<QString, std::vector<FileEntry>> warnTree;
+  warnTree["/Users"] = {FileEntry{.name = "Alice", .fullPath = "/Users/Alice", .isDirectory = true}};
+  warnTree["/Windows/System32"] = {FileEntry{.name = "Tasks", .fullPath = "/Windows/System32/Tasks", .isDirectory = true}};
+  warnTree["/Windows/System32/Tasks"] = {
+      FileEntry{.name = "BrokenSubdir", .fullPath = "/Windows/System32/Tasks/BrokenSubdir", .isDirectory = true},
+  };
+  warnings.clear();
+  const auto traversalWarnArtifacts = service.discover(
+      partition,
+      [&warnTree](const QString &path, QString &error) {
+        error.clear();
+        if (path == "/Windows/System32/Tasks/BrokenSubdir") {
+          error = "synthetic traversal error";
+          return std::vector<FileEntry>{};
+        }
+        if (!warnTree.contains(path)) {
+          error = "missing synthetic dir";
+          return std::vector<FileEntry>{};
+        }
+        return warnTree[path];
+      },
+      warnings);
+  if (traversalWarnArtifacts.empty()) return 1;
+  if (std::none_of(warnings.cbegin(), warnings.cend(), [](const QString &warning) {
+        return warning.contains("Artifact traversal failed at '/Windows/System32/Tasks/BrokenSubdir'");
+      })) {
+    return 1;
+  }
 
   bool cancel = false;
   warnings.clear();

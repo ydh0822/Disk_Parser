@@ -1,5 +1,28 @@
 # Developer Notes
 
+## 2026-03 SRUM Corrective Scope Pass
+- Reconciled SRUM implementation vs documentation claims after follow-up review.
+- Kept valid cleanup/audit work unchanged (dead-code removal, discovery warning regression, low-risk maintainability fixes).
+- SRUM remains metadata-probe-only in this revision:
+  - structure-backed ESE page/tag parsing is still used to discover supported table identifiers;
+  - no SRUM row/cell decoding is claimed or surfaced.
+- Rolled back text-derived SRUM row candidate surfaces to avoid presenting payload-local key/value extraction as true SRUM row decoding:
+  - removed `srum_row_entries` detail/CLI JSON surface
+  - removed SRUM row timeline families
+  - removed SRUM row GUI detail preview lines
+  - aligned tests accordingly
+- Next SRUM pass should focus on true ESE row/cell decoding for a very small table subset before reintroducing row-level public surfaces.
+
+## 2026-03 Post-merge Whole-Codebase Audit/Cleanup Pass
+- Re-audited discovery, provider registration/dispatch, parser/helper decomposition, CLI JSON null semantics, GUI detail rendering/caching/stale-result flow, timeline projection, tests, docs, and build organization after the SRUM metadata probe merge.
+- Confirmed no grounded need for public-surface change; intentionally preserved artifact families, provider IDs, CLI schema shape, timeline families, EVTX focused scope, and SRUM metadata-probe-only scope.
+- Removed clearly dead internal legacy only:
+  - unused `ArtifactDiscoveryService` internal lookup/traversal struct fields;
+  - unused numeric parsing helpers in `ArtifactDetailProviders.cpp`.
+- Added targeted regression coverage for recursive discovery warning behavior so real traversal/listing failures remain visible while expected missing roots still avoid warning noise.
+- Non-blocking hotspot intentionally deferred: duplicated FILETIME conversion helpers across modules remain for now to avoid low-value refactor churn in this stabilization pass.
+- Readiness conclusion: **ready for next major feature pass** with contracts stable and only low-risk deferred debt remaining.
+
 ## 2026-03 SRUM Corrective Pass (scope-honesty + structure-backed parsing)
 - Corrected previous SRUM over-claim: earlier implementation used whole-file token scanning and was not grounded enough to justify public SRUM v1 wording.
 - Kept end-to-end wiring (discovery/provider/CLI/GUI/timeline/tests) but narrowed public scope wording to **SRUM metadata probe**.

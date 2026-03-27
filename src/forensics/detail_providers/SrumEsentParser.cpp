@@ -112,7 +112,7 @@ SrumEsentParseResult parseSrumEsent(const QByteArray &bytes) {
     return out;
   }
 
-  QSet<QString> seen;
+  QSet<QString> seenTables;
   int parsedTags = 0;
   for (int pg = 1; pg < pageCount; ++pg) {
     const QByteArray page = bytes.mid(pg * static_cast<int>(pageSize), static_cast<int>(pageSize));
@@ -121,9 +121,10 @@ SrumEsentParseResult parseSrumEsent(const QByteArray &bytes) {
     for (const auto &payload : taggedPayloads) {
       for (const auto &token : kSupportedTokens) {
         if (!containsToken(payload, token.id)) continue;
-        if (seen.contains(token.id)) continue;
-        seen.insert(token.id);
-        out.tables.push_back({token.id, token.name});
+        if (!seenTables.contains(token.id)) {
+          seenTables.insert(token.id);
+          out.tables.push_back({token.id, token.name});
+        }
       }
     }
   }
@@ -136,4 +137,3 @@ SrumEsentParseResult parseSrumEsent(const QByteArray &bytes) {
 }
 
 } // namespace fie::forensics::detail_providers
-

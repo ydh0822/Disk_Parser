@@ -114,6 +114,13 @@ The repository now includes a minimal production-usable headless executable that
 - **Sysmon channel correctness (v2.1 hardening)**: only the real Sysmon Operational channel (`Microsoft-Windows-Sysmon/Operational.evtx`) with Sysmon provider identity is mapped to `sysmon_*`; other `*/Operational.evtx` channels remain generic EVTX events.
 - **Sysmon realism/fidelity hardening (v2.2)**: EVTX parser now supports a narrow template-substitution pattern in addition to direct text tokens, improving conservative recovery of System/EventData raw fields from more realistic Sysmon-like BinXML payload layouts.
 - **Stabilization note (current pass)**: artifact platform external behavior is intentionally stable (provider contracts/JSON schema/timeline families unchanged) while internal EVTX parsing logic is decomposed into a dedicated narrow parser unit for maintainability/hardening.
+- **Post-merge whole-codebase audit/cleanup pass (current)**:
+  - performed an end-to-end audit of discovery/provider dispatch/CLI JSON/GUI detail/timeline/tests/docs/build organization after the SRUM metadata probe merge;
+  - removed confirmed dead internal code in artifact discovery/detail provider internals (unused fields/helpers only, no surface behavior changes);
+  - added traversal-warning regression coverage for recursive discovery so subtree listing failures remain visible while expected missing roots remain warning-free;
+  - intentionally kept public contracts stable (artifact families/provider IDs/CLI JSON schema/timeline families/EVTX+SRUM scope boundaries unchanged);
+  - left non-blocking hotspot unchanged: duplicated FILETIME conversion helpers remain deferred for a later low-risk consolidation pass.
+- **SRUM corrective scope note (current)**: SRUM remains metadata-probe-only in this revision (table presence via structure-backed page/tag parsing). Prior text-derived row-candidate claims were removed to keep scope honest until true ESE row/cell decoding is implemented.
 - **Pre-SRUM stabilization/readiness (historical baseline)**: whole-codebase consistency review was completed before SRUM implementation, including epoch FILETIME correctness hardening and readiness validation.
 - **Audit evidence (follow-up pass)**:
   - re-checked discovery/provider dispatch/CLI+GUI/timeline surfaces against current tests and contracts;
@@ -140,6 +147,7 @@ The repository now includes a minimal production-usable headless executable that
 - Deferred in this pass: broad USB session/timeline correlation (e.g., MountedDevices/user-hive shell artifacts), and any inference that registry presence alone proves interactive usage.
 - Deferred in this pass: EVTX rendered-message reconstruction, provider DLL loading, publisher metadata resolution, higher-level semantic event-family interpretation, and cross-artifact incident correlation.
 - Deferred to later major feature passes: deeper SRUM table/row coverage and broader cross-artifact semantic correlation.
+- Deferred SRUM scope after this corrective pass: real binary ESE row/cell decoding across additional SRUM tables, richer SRUM identifier resolution, and cross-artifact correlation/inference.
 - Timeline normalization includes Jump List event families: `jump_list_access` (timed) and `jump_list_entry_observed` (untimed when no trusted timestamp is available).
 - TypedPaths is intentionally emitted via the `windows.registry_recent_docs` provider (single NTUSER.DAT recent-activity provider path) to avoid split-provider ambiguity.
 - BAM/DAM parsing resolves active control set via `SYSTEM\\Select\\Current` when available and falls back conservatively to `ControlSet001` with a warning if resolution is unavailable/invalid.

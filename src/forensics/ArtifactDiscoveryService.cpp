@@ -16,7 +16,6 @@ struct ArtifactRule {
 
 struct EntryLookup {
   bool found{false};
-  bool failed{false};
   domain::FileEntry entry;
 };
 
@@ -55,14 +54,14 @@ EntryLookup findEntry(const ArtifactDiscoveryService::ListDirectoryFn &listDirec
     // an already-traversed tree failed unexpectedly.
     if (!warningContext.isEmpty()) {
       warnings.push_back(QString("%1: %2").arg(warningContext, error));
-      return {.found = false, .failed = true, .entry = {}};
+      return {.found = false, .entry = {}};
     }
     return {};
   }
 
   const QString name = baseName(fullPath);
   for (const auto &entry : entries) {
-    if (entry.name.compare(name, Qt::CaseInsensitive) == 0) return {.found = true, .failed = false, .entry = entry};
+    if (entry.name.compare(name, Qt::CaseInsensitive) == 0) return {.found = true, .entry = entry};
   }
   return {};
 }
@@ -152,13 +151,12 @@ void appendRecursiveBySuffix(std::vector<domain::ArtifactRecord> &out, const QSt
   }
 
   struct Node {
-    QString path;
     int depth;
     std::vector<domain::FileEntry> entries;
   };
 
   std::vector<Node> stack;
-  stack.push_back({normalizePath(root), 0, std::move(rootEntries)});
+  stack.push_back({0, std::move(rootEntries)});
   while (!stack.empty()) {
     if (isCancelled(cancel)) return;
     auto node = std::move(stack.back());
@@ -174,7 +172,7 @@ void appendRecursiveBySuffix(std::vector<domain::ArtifactRecord> &out, const QSt
           warnings.push_back(QString("Artifact traversal failed at '%1': %2").arg(entry.fullPath, childError));
           continue;
         }
-        stack.push_back({entry.fullPath, node.depth + 1, std::move(children)});
+        stack.push_back({node.depth + 1, std::move(children)});
         continue;
       }
       if (entry.isDirectory) continue;
@@ -217,13 +215,12 @@ void appendRecursiveFiles(std::vector<domain::ArtifactRecord> &out, const QStrin
   if (!rootError.isEmpty()) return;
 
   struct Node {
-    QString path;
     int depth;
     std::vector<domain::FileEntry> entries;
   };
 
   std::vector<Node> stack;
-  stack.push_back({normalizePath(root), 0, std::move(rootEntries)});
+  stack.push_back({0, std::move(rootEntries)});
   while (!stack.empty()) {
     if (isCancelled(cancel)) return;
     auto node = std::move(stack.back());
@@ -237,7 +234,7 @@ void appendRecursiveFiles(std::vector<domain::ArtifactRecord> &out, const QStrin
           warnings.push_back(QString("Artifact traversal failed at '%1': %2").arg(entry.fullPath, childError));
           continue;
         }
-        stack.push_back({entry.fullPath, node.depth + 1, std::move(children)});
+        stack.push_back({node.depth + 1, std::move(children)});
         continue;
       }
       if (entry.isDirectory) continue;
